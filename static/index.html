@@ -221,7 +221,7 @@
 
   .viewfinder.captured .btn-reset { display: block; }
 
-  .poll-control, .stability-control {
+  .poll-control {
     position: absolute;
     top: 16px;
     left: 16px;
@@ -236,8 +236,7 @@
     color: var(--text-dim);
     font: 0.65rem 'DM Mono', monospace;
   }
-  .poll-control input, .stability-control input { width: 92px; accent-color: var(--accent); }
-  .stability-control { top: 58px; }
+  .poll-control input { width: 92px; accent-color: var(--accent); }
   .poll-value { min-width: 42px; color: var(--text); }
 
   .results-panel {
@@ -633,11 +632,6 @@
       <input id="pollInterval" type="range" min="50" max="1000" step="50" value="100" aria-label="Live recognition polling interval">
       <output class="poll-value" id="pollValue">100 ms</output>
     </div>
-    <div class="stability-control">
-      <label for="stablePeriod">Stable over</label>
-      <input id="stablePeriod" type="range" min="0.5" max="5" step="0.5" value="1" aria-label="Match stabilization period">
-      <output class="poll-value" id="stableValue">1.0 s</output>
-    </div>
     <div class="brackets"><span></span></div>
     <div class="controls">
       <button class="btn-reset" id="btnReset">Retake</button>
@@ -679,8 +673,6 @@ const modalOverlay = document.getElementById('modalOverlay');
 const modal = document.getElementById('modal');
 const pollInterval = document.getElementById('pollInterval');
 const pollValue = document.getElementById('pollValue');
-const stablePeriod = document.getElementById('stablePeriod');
-const stableValue = document.getElementById('stableValue');
 
 let stream = null;
 let lastResults = []; // store for detail view
@@ -707,24 +699,12 @@ pollInterval.addEventListener('input', () => {
   restartLiveTimer();
 });
 
-function sendStablePeriod() {
-  if (liveSocket?.readyState === WebSocket.OPEN) {
-    liveSocket.send(JSON.stringify({ type: 'set_stable_period', seconds: Number(stablePeriod.value) }));
-  }
-}
-
-stablePeriod.addEventListener('input', () => {
-  stableValue.textContent = `${Number(stablePeriod.value).toFixed(1)} s`;
-  sendStablePeriod();
-});
-
 function startLiveRecognition() {
   if (liveSocket || !video.videoWidth) return;
   const wsScheme = location.protocol === 'https:' ? 'wss' : 'ws';
   liveSocket = new WebSocket(`${wsScheme}://${location.host}/live-recognize`);
   liveSocket.binaryType = 'arraybuffer';
   liveSocket.addEventListener('open', () => {
-    sendStablePeriod();
     liveTimer = setInterval(sendLiveFrame, currentPollInterval());
   });
   liveSocket.addEventListener('message', (event) => {
@@ -827,14 +807,19 @@ async function scan() {
 }
 
 // ── Render list ──
-function displayPercentage(r) {
-  return r.stable_percentage != null ? r.stable_percentage : r.similarity * 100;
+// Live results carry a `track_id` per physical card (stable across frames
+// for the same card in view, from the server's per-connection YOLO
+// tracker) alongside `card_id` (the identified product, which is what
+// stays fixed for a one-shot /scan capture instead). Card capture results
+// have no track_id, so fall back to card_id as the row key there.
+function rowKey(r) {
+  return r.track_id != null ? `t${r.track_id}` : `c${r.card_id}`;
 }
 
 function createResultCard(r, index) {
   const card = document.createElement('div');
   card.className = 'result-card';
-  card.dataset.cardId = r.card_id;
+  card.dataset.rowKey = rowKey(r);
   card.innerHTML = `
     <div class="result-rank"></div>
     <div class="result-thumb" hidden><img alt="" loading="lazy"></div>
@@ -854,8 +839,7 @@ function updateResultCard(card, r, index) {
   const img = d.image_url || '';
   const market = d.market_price != null ? `$${Number(d.market_price).toFixed(2)}` : null;
   const low = d.low_price != null ? `$${Number(d.low_price).toFixed(2)}` : null;
-  const simPct = displayPercentage(r).toFixed(1);
-  const rawPct = r.raw_percentage != null ? r.raw_percentage.toFixed(1) : simPct;
+  const simPct = (r.similarity * 100).toFixed(1);
   card.dataset.idx = index;
   card.querySelector('.result-rank').textContent = index + 1;
   card.querySelector('.result-name').textContent = name;
@@ -866,31 +850,33 @@ function updateResultCard(card, r, index) {
   card.querySelector('.result-prices').innerHTML =
     `${market ? `<span class="price-tag"><span class="price-label">Mkt</span><span class="price-value">${market}</span></span>` : ''}` +
     `${low ? `<span class="price-tag"><span class="price-label">Low</span><span class="price-value">${low}</span></span>` : ''}`;
-  card.querySelector('.result-meta').textContent =
-    `${simPct}% stable${r.raw_percentage != null ? ` · ${rawPct}% raw` : ' match'}`;
+  card.querySelector('.result-meta').textContent = `${simPct}% match`;
   card.querySelector('.similarity-fill').style.width = `${simPct}%`;
 }
 
 function renderResults(results) {
   if (!results.length) {
-    // A single live-frame miss must not displace the last stable cards.
+    // A single live-frame miss must not displace the last-seen cards.
     if (lastResults.length) return;
     emptyState.textContent = 'No cards detected';
     emptyState.style.display = '';
     return;
   }
+  // One row per physical card (track_id) -- keep only its best-similarity
+  // candidate match. Distinct track_ids always get distinct rows, even if
+  // they were (mis)identified as the same card_id, since they're genuinely
+  // different physical card instances in view.
   const seen = new Map();
   for (const r of results) {
-    const rawScore = r.raw_percentage != null ? r.raw_percentage : r.similarity * 100;
-    const existing = seen.get(r.card_id);
-    const existingRawScore = existing ? (existing.raw_percentage != null ? existing.raw_percentage : existing.similarity * 100) : -Infinity;
-    if (!existing || rawScore > existingRawScore) seen.set(r.card_id, r);
+    const key = rowKey(r);
+    const existing = seen.get(key);
+    if (!existing || r.similarity > existing.similarity) seen.set(key, r);
   }
-  lastResults = [...seen.values()].slice(0, 3);
+  lastResults = [...seen.values()].sort((a, b) => b.similarity - a.similarity);
   emptyState.style.display = 'none';
-  const existingCards = new Map([...resultsList.children].map(card => [String(card.dataset.cardId), card]));
+  const existingCards = new Map([...resultsList.children].map(card => [card.dataset.rowKey, card]));
   const orderedCards = lastResults.map((r, index) => {
-    const card = existingCards.get(String(r.card_id)) || createResultCard(r, index);
+    const card = existingCards.get(rowKey(r)) || createResultCard(r, index);
     updateResultCard(card, r, index);
     return card;
   });

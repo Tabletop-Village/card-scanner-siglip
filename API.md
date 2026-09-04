@@ -108,6 +108,55 @@ Same format as `/scan` endpoint.
 
 ---
 
+### WS `/live-recognize`
+
+Streams JPEG camera frames for continuous recognition. Each connection gets
+its own isolated YOLO tracker (ByteTrack), so cards keep a stable `track_id`
+across frames as long as they stay in view -- there's no server-side score
+smoothing or aggregation. If you want a "hold steady for N frames before
+committing" UX, implement it client-side by grouping results on `track_id`.
+
+**Protocol:**
+
+Send binary JPEG frames (max 20 FPS; faster sends get an `error` reply, not
+a queued frame). The server replies with one JSON message per frame:
+
+```json
+{
+  "type": "result",
+  "results": [
+    {
+      "card_id": 123456,
+      "track_id": 1,
+      "similarity": 0.9523,
+      "box": [100.5, 200.3, 450.2, 800.7],
+      "details": { "...": "same shape as /scan's details" }
+    }
+  ]
+}
+```
+
+An empty `results` array means no cards were detected in that frame.
+
+**Errors:**
+
+| `error`               | Cause                                    |
+|-----------------------|-------------------------------------------|
+| `frame_rate_exceeded`  | More than 20 frames/sec sent on this connection |
+| `invalid_jpeg`         | Binary payload didn't decode as a JPEG    |
+
+**Response Fields:**
+
+| Field        | Type    | Description                                                        |
+|--------------|---------|----------------------------------------------------------------------|
+| `card_id`    | Integer | The product ID of the matched card                                  |
+| `track_id`   | Integer | Stable per-connection ID for this physical card while it stays in view (ByteTrack, globally unique across connections -- not reset per socket) |
+| `similarity` | Float   | Raw match confidence for this frame (0-1, higher is better) -- no smoothing/averaging is applied |
+| `box`        | Array   | Bounding box coordinates [x1, y1, x2, y2]                            |
+| `details`    | Object  | Full product details (see Database Schema below), or `null` if not found |
+
+---
+
 ### GET `/price`
 
 Get pricing information for a specific card by product ID.

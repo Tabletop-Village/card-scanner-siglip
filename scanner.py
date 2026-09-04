@@ -7,10 +7,15 @@ to get the product ID. Returns the product ID.
 """
 
 from ultralytics import YOLO
+from ultralytics.utils import YAML, IterableSimpleNamespace
+from ultralytics.utils.checks import check_yaml
+from ultralytics.trackers import BOTSORT, BYTETracker
 import cv2
 import numpy as np
 import siglip_matcher
 from config import settings
+
+_TRACKER_MAP = {"bytetrack": BYTETracker, "botsort": BOTSORT}
 
 class Scanner:
     def __init__(self, model_path='models/best(2).pt', vectors_path=None, lora_path=None):
@@ -24,6 +29,21 @@ class Scanner:
         self.device = settings.yolo_device
         self.model.to(self.device)
         self.matcher = siglip_matcher.SigLIPCardSearch(vectors_path=vectors_path, lora_path=lora_path)
+
+    @staticmethod
+    def new_tracker(tracker_yaml='bytetrack.yaml', frame_rate=30):
+        """
+        Build a fresh, isolated tracker instance for one video/websocket
+        stream. Deliberately NOT `model.track(..., persist=True)`: that
+        stores tracker state as an attribute of the shared YOLO model
+        object (`model.predictor.trackers`), which would mix up track IDs
+        across concurrent connections if multiple clients share one
+        Scanner. A standalone BYTETracker/BOTSORT instance, driven by
+        hand via `.update()`, keeps each connection's tracks isolated
+        while still sharing one loaded model for the actual detection.
+        """
+        cfg = IterableSimpleNamespace(**YAML.load(check_yaml(tracker_yaml)))
+        return _TRACKER_MAP[cfg.tracker_type](args=cfg, frame_rate=frame_rate)
 
     def start_scheduled_updates(self):
         """Start the scheduled update background task for the VLAD matcher."""
@@ -141,28 +161,49 @@ class Scanner:
             'box': [0, 0, image.shape[1], image.shape[0]] # Full image box
         }
 
-    def scan(self, image, k=1, verify=False):
+    def scan(self, image, k=1, verify=False, tracker=None):
         """
         Full scan pipeline: segment, crop (with dewarp), and match.
-        Returns a list of dictionaries, each containing the bounding box and a list of matches.
+        Returns a list of dictionaries, each containing the bounding box and
+        a list of matches. If `tracker` is given (see `new_tracker()`), each
+        returned dict also gets a `track_id` that stays stable for the same
+        physical card across calls on that tracker -- callers own the
+        tracker's lifetime (one per video/websocket stream) and pass the
+        same instance on every frame. Without a tracker (the stateless
+        REST /scan and /identify path), no `track_id` key is present at all.
         """
         results = self.segment(image)
         scanned_cards = []
 
         for result in results:
-            if result.boxes:
-                for i in range(len(result.boxes)):
-                    box = result.boxes[i]
-                    mask = result.masks[i] if result.masks is not None else None
-                    cropped = self.crop(image, box, mask)
-                    matches = self.match(cropped, top_k=k, verify=verify)
-                    
-                    if matches:
-                        scanned_cards.append({
-                            'matches': self._match_dicts(matches),
-                            'box': box.xyxy[0].tolist()
-                        })
-        
+            if not result.boxes:
+                continue
+
+            if tracker is not None:
+                tracks = tracker.update(result.boxes.cpu().numpy(), image)
+                if len(tracks) == 0:
+                    continue
+                track_ids = tracks[:, 4]
+                det_indices = tracks[:, -1].astype(int)
+            else:
+                track_ids = [None] * len(result.boxes)
+                det_indices = range(len(result.boxes))
+
+            for track_id, i in zip(track_ids, det_indices):
+                box = result.boxes[i]
+                mask = result.masks[i] if result.masks is not None else None
+                cropped = self.crop(image, box, mask)
+                matches = self.match(cropped, top_k=k, verify=verify)
+
+                if matches:
+                    card = {
+                        'matches': self._match_dicts(matches),
+                        'box': box.xyxy[0].tolist()
+                    }
+                    if track_id is not None:
+                        card['track_id'] = int(track_id)
+                    scanned_cards.append(card)
+
         return scanned_cards
 
 if __name__ == "__main__":

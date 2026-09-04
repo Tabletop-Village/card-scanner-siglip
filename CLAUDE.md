@@ -41,9 +41,8 @@ pytest tests/
 - `config.py` - Centralized settings with environment variable support (pydantic-settings)
 - `logging_config.py` - Structured JSON logging with correlation ID support
 - `api.py` - FastAPI app with endpoints, middleware, rate limiting, auth, the `/live-recognize` WebSocket
-- `scanner.py` - YOLO detection + perspective correction + matcher orchestration
+- `scanner.py` - YOLO detection + perspective correction + matcher orchestration. `Scanner.new_tracker()` builds an isolated ByteTrack/BOTSORT instance per live-recognize connection (deliberately not `model.track(persist=True)`, which stores tracker state on the shared model and would corrupt track IDs across concurrent clients); `scan(..., tracker=...)` drives it by hand and stamps a `track_id` onto each detection.
 - `siglip_matcher.py` - Loads the gallery embeddings + LoRA adapter from the HF Hub (`jackttv/card-scanner-siglip-lora`, or a local `siglip_vectors/` override), GPU-resident cosine-similarity search. Mirrors the old `vlad_matcher.VLADCardSearch` interface (`search`/`search_verified`/`database`/`update_task`) so `scanner.py`/`api.py` needed no other changes.
-- `live_recognition.py` - Per-connection rolling match-score aggregation for the live WebSocket feed
 - `database.py` - Async SQLite operations, CSV sync from tcgcsv.com with retry logic
 
 **Endpoints:**
@@ -52,7 +51,7 @@ pytest tests/
 - `GET /metrics` - Prometheus metrics
 - `POST /scan` - Full pipeline: detect and identify cards in image
 - `POST /identify` - Fast path: identify pre-cropped card (skips YOLO)
-- `WS /live-recognize` - Streams JPEG camera frames (max 20 FPS), returns per-frame + rolling-stable-window match scores
+- `WS /live-recognize` - Streams JPEG camera frames (max 20 FPS); each connection gets its own tracker, so responses carry a raw per-frame `similarity` plus a stable per-connection `track_id` -- no server-side smoothing/aggregation (frontends implement their own if they want it)
 - Both `/scan` and `/identify` accept `verify=true` for API compatibility with the old RANSAC re-rank flag, but it's a no-op now (`inliers` always `0`) -- a global embedding has no keypoints to verify geometrically. See README's "Geometric verification is gone" section before re-adding real reranking.
 - `GET /price`, `POST /prices` - Pricing lookups
 - `POST /update` - Trigger database update (runs in background)

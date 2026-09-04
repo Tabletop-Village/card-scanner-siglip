@@ -41,7 +41,6 @@ import database
 from scanner import Scanner
 from config import settings
 from logging_config import get_logger, set_correlation_id
-from live_recognition import RollingMatchAggregator
 
 logger = get_logger(__name__)
 
@@ -597,43 +596,40 @@ async def ready():
 # =============================================================================
 
 LIVE_RECOGNITION_MAX_FPS = 20
-LIVE_RECOGNITION_WINDOW_SECONDS = 1.0
-LIVE_RECOGNITION_MIN_WINDOW_SECONDS = 0.5
-LIVE_RECOGNITION_MAX_WINDOW_SECONDS = 5.0
 
 
-async def _live_frame_results(image: np.ndarray, aggregator: RollingMatchAggregator) -> list[dict]:
-    """Recognize one camera frame and enrich its candidate IDs from the DB."""
+async def _live_frame_results(image: np.ndarray, tracker) -> list[dict]:
+    """Recognize one camera frame and enrich its candidate IDs from the DB.
+
+    `tracker` is one connection's isolated Scanner.new_tracker() instance
+    (see scanner.py) -- each detected card gets a `track_id` that stays
+    stable for the same physical card across frames on this connection.
+    No server-side score smoothing: raw per-frame similarity only, so
+    frontends can implement whatever temporal aggregation they want,
+    keyed by track_id.
+    """
     scanner = getattr(app.state, "scanner", None)
     db = getattr(app.state, "db", None)
     if not scanner or not db or not db.is_initialized:
         raise RuntimeError("service_not_ready")
 
     detected_cards = await asyncio.wait_for(
-        asyncio.to_thread(scanner.scan, image, k=3, verify=False),
+        asyncio.to_thread(scanner.scan, image, k=3, verify=False, tracker=tracker),
         timeout=settings.yolo_timeout,
     )
-    raw_results: list[dict] = []
-    for card_segment in detected_cards:
-        for match in card_segment["matches"]:
-            raw_results.append({
-                "card_id": int(match["card_id"]),
-                "similarity": float(match["similarity"]),
-                "box": card_segment["box"],
-            })
-
-    stable_scores = aggregator.add(raw_results, observed_at=time.monotonic())
     columns = db.return_columns()
     results = []
-    for raw in raw_results:
-        product_data = await db.query_by_id(raw["card_id"])
-        results.append({
-            "card_id": raw["card_id"],
-            "box": raw["box"],
-            "details": dict(zip(columns, product_data)) if product_data else None,
-            "raw_percentage": round(raw["similarity"] * 100, 1),
-            "stable_percentage": round(stable_scores[raw["card_id"]] * 100, 1),
-        })
+    for card_segment in detected_cards:
+        for match in card_segment["matches"]:
+            card_id = int(match["card_id"])
+            product_data = await db.query_by_id(card_id)
+            results.append({
+                "card_id": card_id,
+                "track_id": card_segment["track_id"],
+                "box": card_segment["box"],
+                "details": dict(zip(columns, product_data)) if product_data else None,
+                "similarity": round(float(match["similarity"]), 4),
+            })
     return results
 
 
@@ -641,32 +637,20 @@ async def _live_frame_results(image: np.ndarray, aggregator: RollingMatchAggrega
 async def live_recognize(websocket: WebSocket):
     """Recognize JPEG camera frames, enforcing 20 FPS per connection.
 
-    A connection owns a one-second RollingMatchAggregator.  Its stable score is
-    the linear-recency weighted mean documented in ``live_recognition.py``;
-    there is no shared state between browsers.
+    A connection owns one isolated tracker (Scanner.new_tracker()), so
+    `track_id`s stay stable for the same physical card across frames on
+    that connection without leaking into any other connection's tracks.
+    There is no server-side score smoothing -- see `_live_frame_results`.
     """
     await websocket.accept()
-    aggregator = RollingMatchAggregator(window_seconds=LIVE_RECOGNITION_WINDOW_SECONDS)
+    scanner = getattr(app.state, "scanner", None)
+    tracker = scanner.new_tracker() if scanner else None
     last_accepted_at: Optional[float] = None
     try:
         while True:
             message = await websocket.receive()
             if message["type"] == "websocket.disconnect":
                 return
-            if message.get("text") is not None:
-                try:
-                    control = json.loads(message["text"])
-                    seconds = float(control["seconds"])
-                    if control.get("type") != "set_stable_period" or not (
-                        LIVE_RECOGNITION_MIN_WINDOW_SECONDS <= seconds <= LIVE_RECOGNITION_MAX_WINDOW_SECONDS
-                    ):
-                        raise ValueError
-                except (ValueError, TypeError, KeyError, json.JSONDecodeError):
-                    await websocket.send_json({"type": "error", "error": "invalid_stable_period"})
-                    continue
-                aggregator.window_seconds = seconds
-                await websocket.send_json({"type": "configured", "stable_period_seconds": seconds})
-                continue
             frame = message.get("bytes")
             if frame is None:
                 await websocket.send_json({"type": "error", "error": "invalid_frame"})
@@ -686,7 +670,7 @@ async def live_recognize(websocket: WebSocket):
                 await websocket.send_json({"type": "error", "error": "invalid_jpeg"})
                 continue
             try:
-                results = await _live_frame_results(image, aggregator)
+                results = await _live_frame_results(image, tracker)
             except asyncio.TimeoutError:
                 await websocket.send_json({"type": "error", "error": "recognition_timed_out"})
                 continue

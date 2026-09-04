@@ -106,8 +106,12 @@ curl -X POST "http://localhost:8000/identify" \
 
 #### Live recognition (WebSocket)
 `/live-recognize` accepts a stream of JPEG camera frames (binary websocket
-messages, max 20 FPS) and returns per-frame + rolling-stable-window match
-scores. See `live_recognition.py` for the aggregation logic.
+messages, max 20 FPS) and returns raw per-frame match scores plus a
+per-connection `track_id` (from an isolated YOLO/ByteTrack tracker) that
+stays stable for the same physical card across frames. There's no
+server-side score smoothing -- frontends that want a "settle before
+committing" UX should group results by `track_id` themselves. See API.md
+for the full response shape.
 
 ### Pricing & Data
 
