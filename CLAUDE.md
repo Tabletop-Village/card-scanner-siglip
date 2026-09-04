@@ -49,8 +49,8 @@ pytest tests/
 - `GET /health` - Liveness probe (always returns 200)
 - `GET /ready` - Readiness probe (checks DB and scanner)
 - `GET /metrics` - Prometheus metrics
-- `POST /scan` - Full pipeline: detect and identify cards in image
-- `POST /identify` - Fast path: identify pre-cropped card (skips YOLO)
+- `POST /scan` - Full pipeline: detect and identify cards in image. `top_n` fixes the match count per card; omitting it switches to margin mode (`config.match_margin_pct`, default 2.0 points) -- every gallery match within that many percentage points of the best similarity is returned instead, for reprints/near-duplicates that shouldn't be arbitrarily narrowed to one. See `siglip_matcher.SigLIPCardSearch.search()` (`top_k=None`).
+- `POST /identify` - Fast path: identify pre-cropped card (skips YOLO). Same `top_n`/margin-mode behavior as `/scan`.
 - `WS /live-recognize` - Streams JPEG camera frames (max 20 FPS); each connection gets its own tracker, so responses carry a raw per-frame `similarity` plus a stable per-connection `track_id` -- no server-side smoothing/aggregation (frontends implement their own if they want it)
 - Both `/scan` and `/identify` accept `verify=true` for API compatibility with the old RANSAC re-rank flag, but it's a no-op now (`inliers` always `0`) -- a global embedding has no keypoints to verify geometrically. See README's "Geometric verification is gone" section before re-adding real reranking.
 - `GET /price`, `POST /prices` - Pricing lookups

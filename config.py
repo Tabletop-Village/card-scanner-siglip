@@ -84,6 +84,14 @@ class Settings(BaseSettings):
     siglip_vectors_path: str = "siglip_vectors"
     siglip_hf_repo_id: str = "jackttv/card-scanner-siglip-lora"
 
+    # Margin-match mode: when a /scan or /identify caller omits top_n, the
+    # matcher returns every gallery match within this many percentage
+    # points of the single best match's similarity, instead of a fixed
+    # count -- e.g. for reprints/near-duplicates that shouldn't be
+    # arbitrarily narrowed down to one.
+    match_margin_pct: float = 2.0
+    match_margin_pool_size: int = 30
+
     # Torch CUDA device for YOLO on NVIDIA hardware.
     yolo_device: str = "cuda"
 

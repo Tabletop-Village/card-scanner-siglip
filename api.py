@@ -700,7 +700,8 @@ async def live_recognize(websocket: WebSocket):
 async def scan(
     request: Request,
     image: UploadFile = fastapi.File(...),
-    top_n: int = 3,
+    top_n: Optional[int] = None,
+    margin_pct: Optional[float] = None,
     verify: bool = False,
     _api_key: Optional[str] = Depends(verify_api_key),
 ):
@@ -708,7 +709,13 @@ async def scan(
     Scan an image from file upload. Returns all data for all cards detected.
     Args:
         image: The image file to scan
-        top_n: The number of top matches to return per card
+        top_n: The number of top matches to return per card. If omitted,
+            returns every match within margin_pct percentage points of the
+            best match's similarity instead of a fixed count (useful for
+            reprints/near-duplicates that shouldn't be arbitrarily narrowed
+            down to one) -- see config.match_margin_pct.
+        margin_pct: Overrides the default margin (config.match_margin_pct)
+            used when top_n is omitted. Ignored if top_n is given.
         verify: Geometrically verify matches (RANSAC re-rank; adds inlier counts)
     Returns:
         JSON object containing all data for all cards detected
@@ -735,7 +742,7 @@ async def scan(
 
         try:
             detected_cards = await asyncio.wait_for(
-                asyncio.to_thread(scanner.scan, img, k=top_n, verify=verify),
+                asyncio.to_thread(scanner.scan, img, k=top_n, verify=verify, margin_pct=margin_pct),
                 timeout=settings.yolo_timeout,
             )
         except asyncio.TimeoutError:
@@ -794,7 +801,8 @@ async def scan(
 async def identify(
     request: Request,
     image: UploadFile = fastapi.File(...),
-    top_n: int = 4,
+    top_n: Optional[int] = None,
+    margin_pct: Optional[float] = None,
     verify: bool = False,
     _api_key: Optional[str] = Depends(verify_api_key),
 ):
@@ -802,7 +810,12 @@ async def identify(
     Identify a pre-cropped card image. Skips YOLO detection.
     Args:
         image: The image file of the card
-        top_n: The number of top matches to return
+        top_n: The number of top matches to return. If omitted, returns
+            every match within margin_pct percentage points of the best
+            match's similarity instead of a fixed count -- see
+            config.match_margin_pct.
+        margin_pct: Overrides the default margin (config.match_margin_pct)
+            used when top_n is omitted. Ignored if top_n is given.
         verify: Geometrically verify matches (RANSAC re-rank; adds inlier counts)
     Returns:
         JSON object containing data for the identified card matches
@@ -826,7 +839,7 @@ async def identify(
         # Use identify_card (lighter than full scan) with timeout
         try:
             card_result = await asyncio.wait_for(
-                asyncio.to_thread(scanner.identify_card, img, k=top_n, verify=verify),
+                asyncio.to_thread(scanner.identify_card, img, k=top_n, verify=verify, margin_pct=margin_pct),
                 timeout=settings.yolo_timeout,
             )
         except asyncio.TimeoutError:

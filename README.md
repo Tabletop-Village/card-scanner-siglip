@@ -90,6 +90,10 @@ Navigate to `http://localhost:8000` to use the built-in scanner UI. It provides 
 
 #### Scan an Image
 Upload an image containing one or more cards to detect and identify them.
+Pass `top_n` for a fixed number of matches per card, or omit it to get
+every match within `margin_pct` percentage points of the best one (default
+2.0) -- useful for reprints/near-duplicates that shouldn't be arbitrarily
+narrowed down to a single result. See API.md for details.
 
 ```bash
 curl -X POST "http://localhost:8000/scan" \

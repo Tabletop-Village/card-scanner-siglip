@@ -121,17 +121,18 @@ class Scanner:
         cropped = image[y1:y2, x1:x2]
         return cropped
 
-    def match(self, cropped_image, top_k=1, verify=False):
+    def match(self, cropped_image, top_k=1, verify=False, margin_pct=None):
         """
         Match the cropped card image using the SigLIP2 LoRA embedding matcher.
         verify=True has no geometric-verification equivalent for a global
         embedding (see siglip_matcher.py) -- inliers is always 0, kept for
         response-shape compatibility.
+        top_k=None switches to margin mode -- see siglip_matcher.search().
         Returns a list of (card_id, similarity) or (card_id, similarity, inliers) tuples.
         """
         if verify:
-            return self.matcher.search_verified(cropped_image, top_k=top_k)
-        results = self.matcher.search(cropped_image, top_k=top_k)
+            return self.matcher.search_verified(cropped_image, top_k=top_k, margin_pct=margin_pct)
+        results = self.matcher.search(cropped_image, top_k=top_k, margin_pct=margin_pct)
         return results
 
     @staticmethod
@@ -143,25 +144,26 @@ class Scanner:
             for m in matches
         ]
 
-    def identify_card(self, image, k=1, verify=False):
+    def identify_card(self, image, k=1, verify=False, margin_pct=None):
         """
         Identify a single pre-cropped card image.
         Resizes the image to the standard card size used in the pipeline before matching.
+        k=None switches to margin mode -- see siglip_matcher.search().
         Returns a dictionary with matches and the bounding box (full image).
         """
         # Resize to standard dimensions used in crop()
         card_width = 400
         card_height = int(card_width * (88 / 63))
-        
+
         resized = cv2.resize(image, (card_width, card_height))
-        matches = self.match(resized, top_k=k, verify=verify)
-        
+        matches = self.match(resized, top_k=k, verify=verify, margin_pct=margin_pct)
+
         return {
             'matches': self._match_dicts(matches),
             'box': [0, 0, image.shape[1], image.shape[0]] # Full image box
         }
 
-    def scan(self, image, k=1, verify=False, tracker=None):
+    def scan(self, image, k=1, verify=False, tracker=None, margin_pct=None):
         """
         Full scan pipeline: segment, crop (with dewarp), and match.
         Returns a list of dictionaries, each containing the bounding box and
@@ -171,6 +173,7 @@ class Scanner:
         tracker's lifetime (one per video/websocket stream) and pass the
         same instance on every frame. Without a tracker (the stateless
         REST /scan and /identify path), no `track_id` key is present at all.
+        k=None switches to margin mode -- see siglip_matcher.search().
         """
         results = self.segment(image)
         scanned_cards = []
@@ -193,7 +196,7 @@ class Scanner:
                 box = result.boxes[i]
                 mask = result.masks[i] if result.masks is not None else None
                 cropped = self.crop(image, box, mask)
-                matches = self.match(cropped, top_k=k, verify=verify)
+                matches = self.match(cropped, top_k=k, verify=verify, margin_pct=margin_pct)
 
                 if matches:
                     card = {

@@ -29,16 +29,29 @@ Uploads an image file, uses YOLO for card detection and segmentation, performs p
 
 **Request:**
 
-| Parameter | Type         | Required | Description                              |
-|-----------|--------------|----------|------------------------------------------|
-| `image`   | File (image) | Yes      | The image file to scan                   |
-| `top_n`   | Integer      | No       | Number of top matches per card (default: 3) |
+| Parameter    | Type         | Required | Description                              |
+|--------------|--------------|----------|------------------------------------------|
+| `image`      | File (image) | Yes      | The image file to scan                   |
+| `top_n`      | Integer      | No       | Number of top matches per card. If omitted, returns every match within `margin_pct` percentage points of the best match instead of a fixed count (see below) |
+| `margin_pct` | Float        | No       | Margin used when `top_n` is omitted (default: 2.0). Ignored if `top_n` is given |
 
 **Example:**
 ```bash
 curl -X POST "http://localhost:8000/scan" \
      -F "image=@your_card_photo.jpg" \
      -F "top_n=5"
+```
+
+**Margin mode (dynamic count):** Omit `top_n` entirely to get every gallery
+match within `margin_pct` points of the top similarity, instead of a fixed
+number of results per card. This is meant for reprints/near-duplicates
+that shouldn't be arbitrarily narrowed down to a single "winner" -- e.g. a
+card with two visually-near-identical reprints might return both at
+98.2% and 97.6% rather than picking one:
+
+```bash
+curl -X POST "http://localhost:8000/scan" -F "image=@your_card_photo.jpg"
+curl -X POST "http://localhost:8000/scan" -F "image=@your_card_photo.jpg" -F "margin_pct=5"
 ```
 
 **Response:**
@@ -91,10 +104,11 @@ Resizes the input image to standard card dimensions and performs SigLIP2 LoRA em
 
 **Request:**
 
-| Parameter | Type         | Required | Description                              |
-|-----------|--------------|----------|------------------------------------------|
-| `image`   | File (image) | Yes      | The pre-cropped card image               |
-| `top_n`   | Integer      | No       | Number of top matches to return (default: 3) |
+| Parameter    | Type         | Required | Description                              |
+|--------------|--------------|----------|------------------------------------------|
+| `image`      | File (image) | Yes      | The pre-cropped card image               |
+| `top_n`      | Integer      | No       | Number of top matches to return. If omitted, returns every match within `margin_pct` percentage points of the best match instead of a fixed count -- see `/scan`'s margin mode above |
+| `margin_pct` | Float        | No       | Margin used when `top_n` is omitted (default: 2.0). Ignored if `top_n` is given |
 
 **Example:**
 ```bash
