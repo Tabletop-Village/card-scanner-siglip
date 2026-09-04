@@ -42,7 +42,7 @@ pytest tests/
 - `logging_config.py` - Structured JSON logging with correlation ID support
 - `api.py` - FastAPI app with endpoints, middleware, rate limiting, auth, the `/live-recognize` WebSocket
 - `scanner.py` - YOLO detection + perspective correction + matcher orchestration
-- `siglip_matcher.py` - Loads `siglip_vectors/embeddings.pt` + the LoRA adapter, GPU-resident cosine-similarity search. Mirrors the old `vlad_matcher.VLADCardSearch` interface (`search`/`search_verified`/`database`/`update_task`) so `scanner.py`/`api.py` needed no other changes.
+- `siglip_matcher.py` - Loads the gallery embeddings + LoRA adapter from the HF Hub (`jackttv/card-scanner-siglip-lora`, or a local `siglip_vectors/` override), GPU-resident cosine-similarity search. Mirrors the old `vlad_matcher.VLADCardSearch` interface (`search`/`search_verified`/`database`/`update_task`) so `scanner.py`/`api.py` needed no other changes.
 - `live_recognition.py` - Per-connection rolling match-score aggregation for the live WebSocket feed
 - `database.py` - Async SQLite operations, CSV sync from tcgcsv.com with retry logic
 
@@ -59,7 +59,7 @@ pytest tests/
 
 **External Dependencies:**
 - Product data from `tcgcsv.com/tcgplayer/{categoryid}/{groupid}/ProductsAndPrices.csv`
-- SigLIP2 base weights (`google/siglip2-so400m-patch14-384`) from HuggingFace at startup; the LoRA adapter is a small local file (`siglip_vectors/lora_best/`)
+- SigLIP2 base weights (`google/siglip2-so400m-patch14-384`) and the LoRA adapter + gallery embeddings (`jackttv/card-scanner-siglip-lora`) from the HF Hub at startup, both cached locally after first fetch
 
 **Scheduled Tasks:**
 - Database update: 3:00 AM daily (configurable)
@@ -75,15 +75,16 @@ See `.env.example` for all available options.
 - `CARD_SCANNER_CORS_ORIGINS` - Comma-separated allowed origins
 - `CARD_SCANNER_MAX_FILE_SIZE` - Max upload size in bytes (default: 10MB)
 - `CARD_SCANNER_LOG_JSON` - Enable JSON logging (default: true)
-- `CARD_SCANNER_SIGLIP_VECTORS_PATH` - Path to the embedding index + LoRA adapter directory (default: `siglip_vectors`)
+- `CARD_SCANNER_SIGLIP_HF_REPO_ID` - HF Hub repo for the LoRA adapter + gallery embeddings (default: `jackttv/card-scanner-siglip-lora`)
+- `CARD_SCANNER_SIGLIP_VECTORS_PATH` - Local directory that overrides the HF Hub if present (default: `siglip_vectors`)
 
 ## Key Files
 
 - `config.py` - All configurable settings with defaults
 - `models/best(2).pt` - YOLOv11 trained model (40.8 MB)
 - `database.db` - SQLite database with products, groups, categories
-- `siglip_vectors/embeddings.pt` - `{ids, embeds}`: one L2-normalized fp16 embedding per catalog product
-- `siglip_vectors/lora_best/` - Merged-at-load LoRA adapter (PEFT format)
+- `embeddings.pt` (HF Hub, or local `siglip_vectors/`) - `{ids, embeds}`: one L2-normalized fp16 embedding per catalog product
+- LoRA adapter (HF Hub `jackttv/card-scanner-siglip-lora`, or local `siglip_vectors/lora_best/`) - Merged-at-load, PEFT format
 - `.env.example` - Example environment configuration
 
 ## Production Features

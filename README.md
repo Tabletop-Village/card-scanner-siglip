@@ -32,18 +32,26 @@ this model came from for the full fine-tuning writeup and methodology.
 
 ## The vector index
 
-`siglip_vectors/` holds:
+The LoRA adapter and gallery embeddings are hosted on the HuggingFace Hub:
+[jackttv/card-scanner-siglip-lora](https://huggingface.co/jackttv/card-scanner-siglip-lora).
+
 - `embeddings.pt` — `{ids, embeds}`, one L2-normalized fp16 embedding per
   catalog product, built from the fine-tuning project's own cached gallery
-  embeddings (no need to re-encode the catalog from scratch).
-- `lora_best/` — the merged-at-load-time LoRA adapter (base SigLIP2 weights
-  are not modified; the adapter loads on top of the stock checkpoint from
-  HuggingFace at startup).
+  embeddings (no need to re-encode the catalog from scratch). Fetched with
+  `huggingface_hub.hf_hub_download` and cached at `~/.cache/huggingface`.
+- the LoRA adapter — merged onto the base SigLIP2 weights at load time via
+  `PeftModel.from_pretrained("jackttv/card-scanner-siglip-lora")`, which
+  fetches/caches it the same way.
+
+Only the first startup on a machine needs network access; both are cached
+locally after that. A local `siglip_vectors/` directory (same
+`embeddings.pt` + `lora_best/` layout), if present, takes priority over the
+Hub — useful for offline dev or testing a not-yet-uploaded adapter.
 
 To add newly released cards: encode their catalog photos with the same
-model/LoRA adapter and append to `embeddings.pt` — no retraining needed,
-identical in spirit to how the VLAD version added cards to its vector
-database.
+model/LoRA adapter, append to `embeddings.pt`, and re-upload to the HF
+repo — no retraining needed, identical in spirit to how the VLAD version
+added cards to its vector database.
 
 ## Geometric verification is gone
 
@@ -149,7 +157,7 @@ The application is configured via environment variables. Copy `.env.example` to 
 - **Authentication**: Set `CARD_SCANNER_API_KEYS` to a comma-separated list of keys to enable auth.
 - **CORS**: Set `CARD_SCANNER_CORS_ORIGINS` to allow specific domains (default is `*`).
 - **Rate Limits**: Adjust `CARD_SCANNER_RATE_LIMIT_*` variables to control request throttling.
-- **Vector index path**: `CARD_SCANNER_SIGLIP_VECTORS_PATH` (default `siglip_vectors`).
+- **Vector index / adapter**: `CARD_SCANNER_SIGLIP_HF_REPO_ID` (default `jackttv/card-scanner-siglip-lora`); `CARD_SCANNER_SIGLIP_VECTORS_PATH` (default `siglip_vectors`) overrides with a local directory if present.
 - **Schedule**:
     - **Vector index reload**: checked once every 24 hours (default 4:00 AM) — reloads `embeddings.pt` from disk in place if it's been refreshed.
     - **Database Update**: Product metadata updates daily (default 3:00 AM).

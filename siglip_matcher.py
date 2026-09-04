@@ -9,12 +9,18 @@ fine-tuning project this model came from (98.8% top-1 / 100% top-3 on the
 Deliberately mirrors vlad_matcher.VLADCardSearch's public interface
 (search/search_verified/compare_images/batch_search, the `database` dict,
 `update_task` + start_scheduled_updates/scheduled_update) so scanner.py and
-api.py need no changes beyond which matcher class gets instantiated -- the
-"vectors repo" here is a small local directory (siglip_vectors/) holding a
-single consolidated embeddings.pt (already-cached gallery embeddings from
-the fine-tuning project, converted to fp16 -- no need to regenerate them)
-plus the merged LoRA adapter, rather than VLAD's per-card sharded .pkl
-files synced from an external git repo.
+api.py need no changes beyond which matcher class gets instantiated.
+
+The LoRA adapter and gallery index are hosted on the HuggingFace Hub
+(https://huggingface.co/jackttv/card-scanner-siglip-lora) rather than a
+synced git repo: `PeftModel.from_pretrained(repo_id)` fetches/caches the
+adapter natively, and `embeddings.pt` (one consolidated {ids, embeds} file,
+already-cached gallery embeddings from the fine-tuning project, fp16 -- no
+need to regenerate them) is fetched with `hf_hub_download`. Both use HF's
+own local cache (~/.cache/huggingface/hub by default), so only the first
+startup needs network access. A local `siglip_vectors/` directory, if
+present (e.g. for offline dev), takes priority over the Hub -- see
+`_local_or_hub_path`.
 
 search_verified() has no real geometric-verification equivalent to fall
 back to (RANSAC re-ranking is a local-keypoint technique; a global
@@ -32,6 +38,7 @@ import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
+from huggingface_hub import hf_hub_download
 from PIL import Image
 from peft import PeftModel
 from transformers import AutoModel, AutoProcessor
@@ -47,9 +54,10 @@ MODEL_ID = "google/siglip2-so400m-patch14-384"
 class SigLIPCardSearch:
     """Load a SigLIP2 LoRA gallery embedding index and search it with cosine similarity."""
 
-    def __init__(self, vectors_path=None, lora_path=None):
+    def __init__(self, vectors_path=None, lora_path=None, hf_repo_id=None):
         self.repo_path = Path(vectors_path or settings.siglip_vectors_path)
         self.lora_path = Path(lora_path) if lora_path else self.repo_path / "lora_best"
+        self.hf_repo_id = hf_repo_id or settings.siglip_hf_repo_id
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.database: dict[str, np.ndarray] = {}
         self._db_array = None
@@ -60,13 +68,17 @@ class SigLIPCardSearch:
         self.load_database()
 
     def _load_model(self):
-        logger.info("Loading SigLIP2 base model + LoRA adapter from %s", self.lora_path)
         model = AutoModel.from_pretrained(MODEL_ID, dtype=torch.bfloat16).to(self.device)
         if self.lora_path.exists():
+            logger.info("Loading SigLIP2 base model + local LoRA adapter from %s", self.lora_path)
             model.vision_model = PeftModel.from_pretrained(model.vision_model, str(self.lora_path))
             model.vision_model = model.vision_model.merge_and_unload()
+        elif self.hf_repo_id:
+            logger.info("Loading SigLIP2 base model + LoRA adapter from HF Hub: %s", self.hf_repo_id)
+            model.vision_model = PeftModel.from_pretrained(model.vision_model, self.hf_repo_id)
+            model.vision_model = model.vision_model.merge_and_unload()
         else:
-            logger.warning("LoRA adapter not found at %s; using base SigLIP2 zero-shot", self.lora_path)
+            logger.warning("No local or HF Hub LoRA adapter configured; using base SigLIP2 zero-shot")
         model.eval()
         self.model = model
         self.processor = AutoProcessor.from_pretrained(MODEL_ID)
@@ -81,11 +93,22 @@ class SigLIPCardSearch:
         logger.info("SigLIP search cache built: %s cards, shape %s on %s",
                     len(values), values.shape, self.device)
 
+    def _resolve_embeddings_path(self):
+        """Local siglip_vectors/embeddings.pt wins if present (offline dev);
+        otherwise fetch/cache it from the HF Hub repo."""
+        local_file = self.repo_path / "embeddings.pt"
+        if local_file.exists():
+            return local_file
+        if not self.hf_repo_id:
+            return None
+        return Path(hf_hub_download(self.hf_repo_id, "embeddings.pt"))
+
     def load_database(self):
         self.database = {}
-        embeddings_file = self.repo_path / "embeddings.pt"
-        if not embeddings_file.exists():
-            logger.warning("SigLIP vector index not found at %s", embeddings_file)
+        embeddings_file = self._resolve_embeddings_path()
+        if embeddings_file is None or not embeddings_file.exists():
+            logger.warning("SigLIP vector index not found locally (%s) or on HF Hub (%s)",
+                            self.repo_path / "embeddings.pt", self.hf_repo_id)
             self._rebuild_search_cache()
             return
         data = torch.load(embeddings_file, map_location="cpu")
@@ -98,9 +121,9 @@ class SigLIPCardSearch:
         self.load_database()
 
     def sync_and_reload(self, force=False):
-        # No automatic repo sync -- this is a locally-built artifact, not an
-        # externally cloned repo (see module docstring). Reload picks up
-        # whatever's on disk if the artifact is ever refreshed in place.
+        # No git repo to sync -- reload just re-resolves the embeddings path
+        # (local override, or re-checks the HF Hub for a newer revision via
+        # its own cache/ETag logic) and rebuilds the search cache.
         self.load_database()
 
     async def scheduled_update(self):

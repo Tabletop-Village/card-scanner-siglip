@@ -77,10 +77,12 @@ class Settings(BaseSettings):
     # External service URLs
     tcg_csv_url: str = "https://tcgcsv.com/tcgplayer/"
 
-    # SigLIP2 LoRA global-embedding matcher (siglip_matcher.py). A small
-    # local artifact (gallery embeddings + merged LoRA adapter), not an
-    # externally synced repo -- see siglip_matcher.py's module docstring.
+    # SigLIP2 LoRA global-embedding matcher (siglip_matcher.py). The adapter
+    # + gallery embeddings live on the HF Hub (siglip_hf_repo_id); a local
+    # siglip_vectors_path directory, if present, overrides the Hub for
+    # offline dev -- see siglip_matcher.py's module docstring.
     siglip_vectors_path: str = "siglip_vectors"
+    siglip_hf_repo_id: str = "jackttv/card-scanner-siglip-lora"
 
     # Torch CUDA device for YOLO on NVIDIA hardware.
     yolo_device: str = "cuda"

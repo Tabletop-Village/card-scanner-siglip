@@ -20,9 +20,11 @@ torch==2.13.0+cu130
 # YOLO detection
 ultralytics==8.3.240
 
-# SigLIP2 LoRA embedding matcher (siglip_matcher.py)
+# SigLIP2 LoRA embedding matcher (siglip_matcher.py) -- adapter + gallery
+# embeddings hosted on the HF Hub, see huggingface.co/jackttv/card-scanner-siglip-lora
 transformers==5.16.1
 peft==0.20.0
+huggingface_hub==1.30.0
 
 # Config & validation
 pydantic-settings>=2.0
