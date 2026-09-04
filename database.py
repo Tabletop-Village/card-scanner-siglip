@@ -38,6 +38,28 @@ def check_connection(func):
         return await func(self, *args, **kwargs)
     return wrapper
 
+# Priority used to pick which price variant becomes a product's canonical
+# products-table row when TCGCSV lists more than one (see load_csv_to_db).
+# Plain/base printings win over alternate finishes so callers that just
+# want "the card's" price get the vanilla one, not whichever finish
+# happened to sort last in the CSV.
+CANONICAL_SUBTYPE_PRIORITY = [
+    "Normal", "Holofoil", "Unlimited", "1st Edition",
+    "Unlimited Holofoil", "1st Edition Holofoil", "Reverse Holofoil", "",
+]
+
+
+def _pick_canonical_variant(rows: list[dict]) -> dict:
+    """Pick the row that becomes the products table's canonical price/name
+    row for a productId with multiple subTypeName rows (e.g. Normal +
+    Reverse Holofoil sharing one productId/image)."""
+    by_subtype = {row.get('subTypeName', '') or '': row for row in rows}
+    for subtype in CANONICAL_SUBTYPE_PRIORITY:
+        if subtype in by_subtype:
+            return by_subtype[subtype]
+    return rows[0]
+
+
 def create_download_retry():
     """Create a retry decorator for HTTP downloads."""
     return retry(
@@ -131,6 +153,20 @@ class Database:
             )
         """)
         
+        await self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS product_variants (
+                product_id INTEGER NOT NULL,
+                sub_type_name TEXT NOT NULL,
+                low_price REAL,
+                mid_price REAL,
+                high_price REAL,
+                market_price REAL,
+                direct_low_price REAL,
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (product_id, sub_type_name)
+            )
+        """)
+
         await self.conn.execute("""
             CREATE TABLE IF NOT EXISTS groups (
                 group_id INTEGER PRIMARY KEY,
@@ -264,55 +300,84 @@ class Database:
     
     @check_connection
     async def load_csv_to_db(self, file_path, category_id, group_id):
-        """Load CSV data into the database."""
+        """Load CSV data into the database.
+
+        TCGCSV lists one row per (productId, subTypeName) pair -- the same
+        physical card commonly appears twice, e.g. once as "Normal" and
+        once as "Reverse Holofoil", sharing the same productId and image
+        but with different prices. Every row is preserved in
+        product_variants (keyed by product_id + sub_type_name); the
+        `products` table additionally gets one canonical row per productId
+        (its shared name/image/etc, plus whichever variant's price is
+        picked by _pick_canonical_variant) for callers that just want "the
+        card's" price without enumerating variants.
+        """
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                
-                batch = []
-                now = datetime.now()
-                for row in reader:
-                    # Dynamically collect all columns that start with 'ext'
-                    ext_data = {
-                        key: value 
-                        for key, value in row.items() 
-                        if key.startswith('ext')
-                    }
-                    
-                    # Pickle the extended data
-                    pickled_ext_data = pickle.dumps(ext_data)
-                    
-                    batch.append((
-                        int(row.get('productId', 0)),
-                        row.get('name', ''),
-                        row.get('cleanName', ''),
-                        row.get('imageUrl', ''),
-                        int(row.get('categoryId', category_id)),
-                        int(row.get('groupId', group_id)),
-                        row.get('url', ''),
-                        row.get('modifiedOn', ''),
-                        int(row.get('imageCount', 0) or 0),
+                rows_by_product: dict[int, list[dict]] = {}
+                for row in csv.DictReader(f):
+                    product_id = int(row.get('productId', 0) or 0)
+                    rows_by_product.setdefault(product_id, []).append(row)
+
+            now = datetime.now()
+            products_batch = []
+            variants_batch = []
+            for product_id, rows in rows_by_product.items():
+                canonical = _pick_canonical_variant(rows)
+                ext_data = {key: value for key, value in canonical.items() if key.startswith('ext')}
+                pickled_ext_data = pickle.dumps(ext_data)
+
+                products_batch.append((
+                    product_id,
+                    canonical.get('name', ''),
+                    canonical.get('cleanName', ''),
+                    canonical.get('imageUrl', ''),
+                    int(canonical.get('categoryId', category_id) or category_id),
+                    int(canonical.get('groupId', group_id) or group_id),
+                    canonical.get('url', ''),
+                    canonical.get('modifiedOn', ''),
+                    int(canonical.get('imageCount', 0) or 0),
+                    float(canonical.get('lowPrice', 0) or 0),
+                    float(canonical.get('midPrice', 0) or 0),
+                    float(canonical.get('highPrice', 0) or 0),
+                    float(canonical.get('marketPrice', 0) or 0),
+                    float(canonical.get('directLowPrice', 0) or 0),
+                    canonical.get('subTypeName', ''),
+                    pickled_ext_data,
+                    now
+                ))
+
+                for row in rows:
+                    variants_batch.append((
+                        product_id,
+                        row.get('subTypeName', '') or '',
                         float(row.get('lowPrice', 0) or 0),
                         float(row.get('midPrice', 0) or 0),
                         float(row.get('highPrice', 0) or 0),
                         float(row.get('marketPrice', 0) or 0),
                         float(row.get('directLowPrice', 0) or 0),
-                        row.get('subTypeName', ''),
-                        pickled_ext_data,
-                        now
+                        now,
                     ))
-                
-                if batch:
-                    await self.conn.executemany("""
-                        INSERT OR REPLACE INTO products 
-                        (product_id, name, clean_name, image_url, category_id, group_id,
-                         url, modified_on, image_count, low_price, mid_price, high_price,
-                         market_price, direct_low_price, sub_type_name, ext_data, last_updated)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, batch)
-                    await self.conn.commit()
-                
-                logger.info(f"Loaded CSV data from {file_path} into database")
+
+            if products_batch:
+                await self.conn.executemany("""
+                    INSERT OR REPLACE INTO products
+                    (product_id, name, clean_name, image_url, category_id, group_id,
+                     url, modified_on, image_count, low_price, mid_price, high_price,
+                     market_price, direct_low_price, sub_type_name, ext_data, last_updated)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, products_batch)
+            if variants_batch:
+                await self.conn.executemany("""
+                    INSERT OR REPLACE INTO product_variants
+                    (product_id, sub_type_name, low_price, mid_price, high_price,
+                     market_price, direct_low_price, last_updated)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, variants_batch)
+            if products_batch or variants_batch:
+                await self.conn.commit()
+
+            logger.info(f"Loaded CSV data from {file_path} into database")
         except Exception as e:
             logger.error(f"Failed to load CSV to database: {e}")
             raise
@@ -454,6 +519,28 @@ class Database:
                     logger.warning(f"Failed to deserialize ext_data for product {product_id}: {e}")
                     return {}
             return None
+
+    @check_connection
+    async def query_variants_by_id(self, product_id: int) -> list[dict]:
+        """Return every priced finish/variant (Normal, Reverse Holofoil,
+        etc.) for a product, sharing the same card/image."""
+        async with self.conn.execute(
+            "SELECT sub_type_name, low_price, mid_price, high_price, market_price, direct_low_price "
+            "FROM product_variants WHERE product_id = ? ORDER BY sub_type_name",
+            (product_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        return [
+            {
+                "sub_type_name": row[0],
+                "low_price": row[1],
+                "mid_price": row[2],
+                "high_price": row[3],
+                "market_price": row[4],
+                "direct_low_price": row[5],
+            }
+            for row in rows
+        ]
 
     @check_connection
     async def query_prices_batch(self, product_ids: list[int]) -> dict[int, dict]:

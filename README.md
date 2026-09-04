@@ -93,7 +93,11 @@ Upload an image containing one or more cards to detect and identify them.
 Pass `top_n` for a fixed number of matches per card, or omit it to get
 every match within `margin_pct` percentage points of the best one (default
 2.0) -- useful for reprints/near-duplicates that shouldn't be arbitrarily
-narrowed down to a single result. See API.md for details.
+narrowed down to a single result. Each matched card also comes back with a
+`variants` list covering every priced finish (Normal, Reverse Holofoil,
+1st Edition, etc.) -- TCGCSV catalogs them under the same product/image, so
+the match itself can't tell which finish is physically in hand. See
+API.md for details.
 
 ```bash
 curl -X POST "http://localhost:8000/scan" \

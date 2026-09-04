@@ -79,7 +79,11 @@ curl -X POST "http://localhost:8000/scan" -F "image=@your_card_photo.jpg" -F "ma
       "sub_type_name": "Pokemon Single",
       "ext_data": {"extRarity": "Ultra Rare", "extNumber": "044/185"},
       "last_updated": "2024-01-20T03:00:00"
-    }
+    },
+    "variants": [
+      {"sub_type_name": "Normal", "low_price": 15.99, "mid_price": 22.50, "high_price": 35.00, "market_price": 20.75, "direct_low_price": 18.00},
+      {"sub_type_name": "Reverse Holofoil", "low_price": 24.99, "mid_price": 32.10, "high_price": 55.00, "market_price": 29.40, "direct_low_price": 26.00}
+    ]
   }
 ]
 ```
@@ -92,6 +96,15 @@ curl -X POST "http://localhost:8000/scan" -F "image=@your_card_photo.jpg" -F "ma
 | `similarity` | Float  | Match confidence score (0-1, higher is better)    |
 | `box`        | Array  | Bounding box coordinates [x1, y1, x2, y2]         |
 | `details`    | Object | Full product details (see Database Schema below)  |
+| `variants`   | Array  | Every priced finish of this card (Normal, Reverse Holofoil, 1st Edition, etc.) -- see "Card finishes / variants" below |
+
+**Card finishes / variants:** TCGCSV assigns the *same* `product_id` and
+catalog image to every finish of a card (Normal, Reverse Holofoil, 1st
+Edition, ...) -- a match can't tell which one is physically in hand,
+since they're visually identical in the catalog. `details`'s flat price
+fields (`low_price`, `market_price`, etc.) are just one canonical finish
+(preferring "Normal" when it exists); `variants` lists every finish's
+price so a client can show all of them or let the user pick.
 
 ---
 
@@ -144,7 +157,8 @@ a queued frame). The server replies with one JSON message per frame:
       "track_id": 1,
       "similarity": 0.9523,
       "box": [100.5, 200.3, 450.2, 800.7],
-      "details": { "...": "same shape as /scan's details" }
+      "details": { "...": "same shape as /scan's details" },
+      "variants": [ { "...": "same shape as /scan's variants" } ]
     }
   ]
 }
@@ -168,6 +182,7 @@ An empty `results` array means no cards were detected in that frame.
 | `similarity` | Float   | Raw match confidence for this frame (0-1, higher is better) -- no smoothing/averaging is applied |
 | `box`        | Array   | Bounding box coordinates [x1, y1, x2, y2]                            |
 | `details`    | Object  | Full product details (see Database Schema below), or `null` if not found |
+| `variants`   | Array   | Every priced finish of this card -- see /scan's "Card finishes / variants" above |
 
 ---
 

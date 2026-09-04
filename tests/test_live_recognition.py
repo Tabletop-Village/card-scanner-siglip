@@ -35,6 +35,12 @@ class _Database:
     async def query_by_id(self, product_id):
         return (product_id, "Test Card") if product_id == 42 else None
 
+    async def query_variants_by_id(self, product_id):
+        if product_id != 42:
+            return []
+        return [{"sub_type_name": "Normal", "low_price": 0.1, "mid_price": 0.2,
+                 "high_price": 0.3, "market_price": 0.25, "direct_low_price": 0.15}]
+
 
 def _client_with_live_dependencies():
     app.state.scanner = _Scanner()
@@ -58,6 +64,8 @@ def test_live_recognize_websocket_returns_per_card_track_ids_and_raw_similarity(
             "track_id": 1,
             "box": [0, 0, 8, 8],
             "details": {"product_id": 42, "clean_name": "Test Card"},
+            "variants": [{"sub_type_name": "Normal", "low_price": 0.1, "mid_price": 0.2,
+                          "high_price": 0.3, "market_price": 0.25, "direct_low_price": 0.15}],
             "similarity": 0.8,
         },
         {
@@ -65,6 +73,7 @@ def test_live_recognize_websocket_returns_per_card_track_ids_and_raw_similarity(
             "track_id": 2,
             "box": [4, 4, 8, 8],
             "details": None,
+            "variants": [],
             "similarity": 0.5,
         },
     ]

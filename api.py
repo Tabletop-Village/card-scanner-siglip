@@ -509,11 +509,27 @@ async def update_label_review(filename: str, update: LabelReviewUpdate):
 # Request/Response Models
 # =============================================================================
 
+class ProductVariant(BaseModel):
+    """One priced finish (Normal, Reverse Holofoil, etc.) of a matched
+    card -- these share the same card_id/image, since TCGCSV assigns one
+    productId per card regardless of finish."""
+    sub_type_name: str
+    low_price: Optional[float] = None
+    mid_price: Optional[float] = None
+    high_price: Optional[float] = None
+    market_price: Optional[float] = None
+    direct_low_price: Optional[float] = None
+
+
 class ScanResult(BaseModel):
     card_id: int
     similarity: float
     box: List[float]
     details: Optional[dict] = None
+    # Every priced finish for this card (Normal, Reverse Holofoil, etc.) --
+    # the match itself can't tell which one is physically in hand, since
+    # they share one catalog image (see ProductVariant).
+    variants: List[ProductVariant] = []
     # RANSAC inlier count when geometric verification was requested
     # (verify=true); doubles as a match-confidence signal.
     inliers: Optional[int] = None
@@ -628,6 +644,7 @@ async def _live_frame_results(image: np.ndarray, tracker) -> list[dict]:
                 "track_id": card_segment["track_id"],
                 "box": card_segment["box"],
                 "details": dict(zip(columns, product_data)) if product_data else None,
+                "variants": await db.query_variants_by_id(card_id),
                 "similarity": round(float(match["similarity"]), 4),
             })
     return results
@@ -766,6 +783,7 @@ async def scan(
                 details = None
                 if product_data:
                     details = dict(zip(cols, product_data))
+                variants = await db.query_variants_by_id(product_id)
 
                 results.append(
                     ScanResult(
@@ -773,6 +791,7 @@ async def scan(
                         similarity=similarity,
                         box=box,
                         details=details,
+                        variants=variants,
                         inliers=match.get("inliers"),
                     )
                 )
@@ -863,6 +882,7 @@ async def identify(
             details = None
             if product_data:
                 details = dict(zip(cols, product_data))
+            variants = await db.query_variants_by_id(product_id)
 
             results.append(
                 ScanResult(
@@ -870,6 +890,7 @@ async def identify(
                     similarity=similarity,
                     box=box,
                     details=details,
+                    variants=variants,
                     inliers=match.get("inliers"),
                 )
             )
