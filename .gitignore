@@ -1,0 +1,23 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.DS_Store
+*.log
+
+# Data and models -- deployed/generated artifacts, not committed
+database.db
+database.db.partial-*
+test_database.db
+categories/
+scans/
+test_images/
+siglip_vectors/
+
+# Private: user-submitted scan uploads (0600/0700 perms) and TLS keys --
+# never belongs in git history.
+scan-archive/
+certs/
+
+# Temp files
+groups_test.json
+*.pkl

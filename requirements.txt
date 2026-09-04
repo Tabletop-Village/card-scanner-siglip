@@ -1,0 +1,33 @@
+# CUDA 13 PyTorch wheels (PyPI remains the primary index for other packages).
+--extra-index-url https://download.pytorch.org/whl/cu130
+
+# Web framework
+fastapi==0.125.0
+uvicorn==0.38.0
+websockets==15.0.1
+python-multipart==0.0.21
+
+# Database & HTTP
+aiosqlite==0.22.0
+httpx==0.28.1
+
+# Computer vision
+opencv-python-headless==5.0.0.93
+numpy==2.4.6
+pillow==12.0.0
+torch==2.13.0+cu130
+
+# YOLO detection
+ultralytics==8.3.240
+
+# SigLIP2 LoRA embedding matcher (siglip_matcher.py)
+transformers==5.16.1
+peft==0.20.0
+
+# Config & validation
+pydantic-settings>=2.0
+
+# Production middleware
+slowapi>=0.1.8
+tenacity>=8.0
+prometheus-fastapi-instrumentator>=6.0

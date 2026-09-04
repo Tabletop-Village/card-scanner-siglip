@@ -1,0 +1,21 @@
+[tools]
+python = "3.12"
+
+[env]
+_.python.venv = { path = ".venv", create = true }
+
+[tasks.install]
+description = "Install Python dependencies"
+run = "uv pip install -r requirements.txt"
+
+[tasks.serve]
+description = "Run the API server"
+run = "python main.py"
+
+[tasks.test]
+description = "Run tests"
+run = "pytest tests/"
+
+[tasks.dev]
+description = "Run the API server with reload"
+run = "uvicorn api:app --reload --host 127.0.0.1 --port 8000"

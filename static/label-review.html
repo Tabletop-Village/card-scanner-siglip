@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Card label review · Tabletop Village</title>
+<style>
+  :root { --ink:#201d18; --paper:#f6f0e4; --panel:#fffdf8; --line:#d8cdbb; --muted:#756e63; --accent:#a43d27; --ok:#27674c; --warn:#9d6a12; }
+  * { box-sizing:border-box } body { margin:0; color:var(--ink); background:var(--paper); font:15px/1.45 Georgia, 'Times New Roman', serif; }
+  header { display:flex; align-items:baseline; gap:18px; padding:18px clamp(18px,4vw,56px); border-bottom:1px solid var(--line); background:#ece3d2; } h1 { margin:0; font-size:23px; letter-spacing:-.02em; } header p { margin:0; color:var(--muted); } main { max-width:1500px; margin:auto; padding:24px clamp(18px,4vw,56px) 56px; }
+  .toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:9px; margin-bottom:18px; } button, input, select, textarea { font:inherit; border:1px solid var(--line); border-radius:3px; padding:8px 10px; background:#fffdf8; color:var(--ink); } button { cursor:pointer; } button.primary { background:var(--accent); color:white; border-color:var(--accent); } button:disabled { opacity:.45; cursor:default; } input { min-width:220px; } #counter { margin-left:auto; color:var(--muted); font-variant-numeric:tabular-nums; }
+  .grid { display:grid; grid-template-columns:minmax(280px,1fr) minmax(280px,1fr) 340px; gap:18px; align-items:start; } .image-panel,.review-panel { border:1px solid var(--line); background:var(--panel); padding:13px; } .image-panel h2,.review-panel h2 { font-size:14px; margin:0 0 10px; color:var(--muted); font-family:system-ui,sans-serif; font-weight:600; text-transform:uppercase; letter-spacing:.06em; } img.card { width:100%; max-height:72vh; object-fit:contain; display:block; background:#191816; } .meta { min-height:72px; margin-top:10px; } .meta strong { font-size:18px; display:block; } .subtle { color:var(--muted); font-size:13px; }
+  label { display:block; margin:12px 0 4px; color:var(--muted); font-family:system-ui,sans-serif; font-size:12px; font-weight:650; text-transform:uppercase; letter-spacing:.05em; } textarea { min-height:75px; width:100%; resize:vertical; } .choice { padding:12px; border:1px solid var(--line); background:#f8f3ea; } .choice.changed { border-color:var(--ok); background:#ecf4ed; } .badge { display:inline-block; border-radius:999px; padding:2px 8px; font:700 11px system-ui,sans-serif; background:#e8e0d3; } .badge.forced_low { background:#f5e7c6; color:#774900; } .badge.changed { background:#d9ecdf; color:#20543d; }
+  #candidates { margin-top:8px; max-height:270px; overflow:auto; border-top:1px solid var(--line); } .candidate { display:grid; grid-template-columns:42px 1fr auto; gap:9px; align-items:center; padding:7px 2px; border-bottom:1px solid #e8dfd1; cursor:pointer; } .candidate img { width:42px; height:58px; object-fit:contain; background:#ddd; } .candidate:hover { background:#f2eadc; } .candidate b { font-size:14px; } .candidate span { color:var(--muted); font:12px system-ui,sans-serif; }
+  #empty { display:none; padding:36px; border:1px dashed var(--line); color:var(--muted); text-align:center; } @media (max-width:1000px) { .grid { grid-template-columns:1fr 1fr; } .review-panel { grid-column:1/-1; } } @media (max-width:650px) { .grid { grid-template-columns:1fr; } .review-panel { grid-column:auto; } #counter { width:100%; margin-left:0; } }
+</style>
+</head>
+<body>
+<header><h1>Card label review</h1><p>Tabletop Village · human verification queue</p></header>
+<main>
+  <p class="subtle" style="margin-top:0">These are locally run Qwen model proposals awaiting human verification. A displayed confidence is not a calibrated accuracy measure or a substitute for your visual check.</p>
+  <div class="toolbar">
+    <button id="previous">← Previous</button><button id="next">Next →</button>
+    <select id="filter"><option value="all">All choices</option><option value="forced_low">Forced-low only</option><option value="changed">Changed by me</option></select>
+    <button id="reload">Reload labels</button><span id="counter">Loading…</span>
+  </div>
+  <section id="empty">No agent choices have been recorded yet. This page refreshes from the append-safe labeling CSV.</section>
+  <section class="grid" id="review" hidden>
+    <article class="image-panel"><h2>Camera scan</h2><img class="card" id="scanImage" alt="Original scanner image"><div class="meta"><strong id="filename"></strong><span class="subtle">Inspect the physical card yourself; catalog finish metadata is not proof of its foil treatment.</span></div></article>
+    <article class="image-panel"><h2>Chosen catalog card</h2><img class="card" id="catalogImage" alt="Chosen TCGCSV catalog card"><div class="meta" id="catalogMeta"></div></article>
+    <aside class="review-panel"><h2>Review status &amp; choice</h2><div id="choice" class="choice"><span class="badge" id="confidence"></span><span class="badge" id="reviewStatus"></span><p><b>Original agent choice</b><br><span id="original"></span></p><p><b>Current choice</b><br><span id="current"></span></p></div>
+      <label for="productSearch">Find another TCGCSV card</label><input id="productSearch" placeholder="Search by card name"><button id="search">Search catalog</button><div id="candidates"></div>
+      <label for="reviewNote">Why this change?</label><textarea id="reviewNote" placeholder="Optional: state what you visually verified"></textarea><button class="primary" id="saveChoice">Save review</button><p id="message" class="subtle"></p>
+    </aside>
+  </section>
+</main>
+<script>
+let labels=[], visible=[], index=0, selected=null;
+const $=id=>document.getElementById(id);
+function esc(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function applyFilter(){ const f=$('filter').value; visible=labels.filter(x=>f==='all'||(f==='changed'?x.review_status==='changed':x.confidence===f)); index=Math.max(0,Math.min(index,visible.length-1)); render(); }
+function render(){ const current=visible[index]; $('empty').style.display=current?'none':'block'; $('review').hidden=!current; $('counter').textContent=current?`${index+1} of ${visible.length} shown · ${labels.length} labeled`:'0 labeled'; if(!current)return; selected={product_id:current.product_id,name:current.candidate_name,image_url:current.catalog_image_url}; $('scanImage').src='/label-review/images/'+encodeURIComponent(current.filename); $('filename').textContent=current.filename; $('catalogImage').src=selected.image_url||''; $('catalogMeta').innerHTML=`<strong>${esc(selected.name||'Unknown')}</strong><span class="subtle">TCGCSV product ID ${esc(selected.product_id)}</span>`; $('confidence').textContent=current.confidence||'unknown'; $('confidence').className='badge '+(current.confidence||''); $('reviewStatus').textContent=current.review_status==='changed'?'Changed':'Unreviewed'; $('reviewStatus').className='badge '+current.review_status; $('original').textContent=`${current.original_candidate_name||'Unknown'} · ${current.original_product_id||'—'}`; $('current').textContent=`${selected.name||'Unknown'} · ${selected.product_id||'—'}`; $('choice').className='choice '+(current.review_status==='changed'?'changed':''); $('reviewNote').value=current.review_note||''; $('message').textContent=''; $('previous').disabled=index===0; $('next').disabled=index>=visible.length-1; }
+async function load(){ const r=await fetch("/label-review/labels"); if(!r.ok)throw new Error('Could not load labels'); labels=(await r.json()).labels; applyFilter(); }
+async function search(){ const q=$('productSearch').value.trim(); if(q.length<2)return; const r=await fetch("/label-review/products?q="+encodeURIComponent(q)); const products=(await r.json()).products; $('candidates').innerHTML=products.map((p,i)=>`<div class="candidate" data-i="${i}"><img src="${esc(p.image_url)}" alt=""><div><b>${esc(p.name)}</b><br><span>${esc(p.product_id)} · catalog subtype: ${esc(p.sub_type_name||'none')}</span></div><span>Choose</span></div>`).join('')||'<p class="subtle">No catalog matches.</p>'; document.querySelectorAll('.candidate').forEach(node=>node.onclick=()=>{const p=products[Number(node.dataset.i)];selected={product_id:p.product_id,name:p.name,image_url:p.image_url};$('catalogImage').src=p.image_url||'';$('catalogMeta').innerHTML=`<strong>${esc(p.name)}</strong><span class="subtle">TCGCSV product ID ${esc(p.product_id)}</span>`;$('current').textContent=`${p.name} · ${p.product_id}`;}); }
+async function save(){ const current=visible[index]; if(!selected?.product_id)return; $('saveChoice').disabled=true; try { const r=await fetch(`/label-review/labels/${encodeURIComponent(current.filename)}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({product_id:Number(selected.product_id),review_note:$('reviewNote').value})}); if(!r.ok)throw new Error((await r.json()).detail||'Save failed'); $('message').textContent='Saved. This correction is stored separately from the agent queue.'; await load(); } catch(e){$('message').textContent=e.message;} finally {$('saveChoice').disabled=false;} }
+$('previous').onclick=()=>{index--;render()}; $('next').onclick=()=>{index++;render()}; $('filter').onchange=applyFilter; $('reload').onclick=()=>load().catch(e=>$('counter').textContent=e.message); $('search').onclick=search; $('productSearch').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();search()}}; $('saveChoice').onclick=save; load().catch(e=>$('counter').textContent=e.message);
+</script>
+</body></html>

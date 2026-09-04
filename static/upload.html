@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tabletop Village — Upload Scan</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg:#0a0a0c; --surface:#131318; --surface-2:#1a1a22; --border:#2a2a35; --ink:#e8e6e3; --muted:#8a8a95; --gold:#f0c040; --gold-dark:#b8922e; --red:#ff7777; --green:#65d99a; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; background:var(--bg); color:var(--ink); font-family:"DM Mono",monospace; }
+    header { height:74px; display:flex; align-items:center; justify-content:space-between; gap:20px; padding:0 clamp(20px,5vw,72px); border-bottom:1px solid var(--border); }
+    .brand { color:var(--gold); font:400 clamp(24px,3vw,31px)/1 "Instrument Serif",serif; letter-spacing:-.03em; text-decoration:none; }
+    .eyebrow { font-size:11px; letter-spacing:.12em; color:var(--muted); text-transform:uppercase; }
+    main { width:min(1120px,100%); margin:0 auto; padding:clamp(38px,7vw,80px) clamp(20px,5vw,52px); }
+    .intro { max-width:630px; margin-bottom:38px; }
+    h1 { margin:0 0 12px; font:400 clamp(42px,7vw,72px)/.95 "Instrument Serif",serif; letter-spacing:-.04em; }
+    .intro p { color:var(--muted); font-size:14px; line-height:1.65; margin:0; }
+    .workspace { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(280px,.9fr); gap:20px; align-items:start; }
+    .panel { border:1px solid var(--border); background:var(--surface); }
+    .dropzone { min-height:430px; padding:24px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; cursor:pointer; outline:none; transition:border-color .16s, background .16s; }
+    .dropzone.dragging, .dropzone:focus-visible { border-color:var(--gold); background:#1b1913; }
+    .dropzone.has-file { justify-content:flex-start; }
+    .drop-mark { display:grid; place-items:center; width:58px; height:58px; border:1px solid var(--gold-dark); color:var(--gold); font-size:28px; margin-bottom:20px; }
+    .dropzone h2 { margin:0; font:400 31px/1 "Instrument Serif",serif; }
+    .dropzone p { max-width:300px; margin:12px 0 0; color:var(--muted); font-size:12px; line-height:1.6; }
+    #imageInput { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); }
+    #preview { display:none; max-width:100%; max-height:300px; object-fit:contain; margin:auto; border:1px solid var(--border); }
+    .file-meta { display:none; align-items:center; justify-content:space-between; gap:14px; width:100%; margin-top:18px; padding-top:16px; border-top:1px solid var(--border); text-align:left; }
+    .file-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
+    .file-size { color:var(--muted); font-size:11px; white-space:nowrap; }
+    button { min-height:46px; border:0; font:500 12px "DM Mono",monospace; letter-spacing:.07em; text-transform:uppercase; cursor:pointer; }
+    #scanButton { width:100%; margin-top:20px; color:#16130a; background:var(--gold); }
+    #scanButton:hover:not(:disabled) { background:#ffd45c; }
+    #scanButton:disabled { cursor:not-allowed; opacity:.38; }
+    .results { min-height:430px; padding:24px; }
+    .results-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; padding-bottom:15px; border-bottom:1px solid var(--border); }
+    .results h2 { margin:0; font:400 27px/1 "Instrument Serif",serif; }
+    #status { color:var(--muted); font-size:10px; letter-spacing:.08em; text-transform:uppercase; }
+    .empty { color:var(--muted); font-size:12px; line-height:1.6; padding:30px 0; }
+    .match { padding:18px 0; border-bottom:1px solid var(--border); }
+    .match:last-child { border-bottom:0; }
+    .match-body { display:grid; grid-template-columns:72px minmax(0,1fr); gap:14px; align-items:start; }
+    .card-art { display:block; width:72px; padding:0; border:1px solid var(--border); background:#09090b; overflow:hidden; cursor:zoom-in; }
+    .card-art:hover, .card-art:focus-visible { border-color:var(--gold); outline:none; }
+    .card-art img { display:block; width:100%; aspect-ratio:5 / 7; object-fit:cover; }
+    .match-top { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; }
+    .match-name { font-size:13px; line-height:1.45; }
+    .match-sub { margin-top:7px; color:var(--muted); font-size:11px; line-height:1.5; }
+    .score { color:var(--gold); font-size:12px; white-space:nowrap; }
+    .bar { height:3px; margin-top:14px; background:var(--surface-2); }
+    .bar > span { display:block; height:100%; background:var(--gold); }
+    .notice { color:var(--red); font-size:12px; line-height:1.6; padding:20px 0; }
+    .loading { color:var(--gold); }
+    dialog { width:min(92vw,560px); max-height:92vh; padding:0; border:1px solid var(--gold-dark); background:var(--surface); color:var(--ink); }
+    dialog::backdrop { background:rgba(0,0,0,.82); }
+    .dialog-head { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:14px 16px; border-bottom:1px solid var(--border); font-size:12px; }
+    .dialog-close { min-height:auto; padding:6px 9px; color:var(--ink); background:var(--surface-2); }
+    #dialogImage { display:block; max-width:100%; max-height:calc(92vh - 54px); margin:auto; }
+    @media (max-width:760px) { header { height:64px; } .workspace { grid-template-columns:1fr; } .dropzone,.results { min-height:340px; } }
+    @media (prefers-reduced-motion:reduce) { * { transition:none !important; } }
+  </style>
+</head>
+<body>
+  <header>
+    <a class="brand" href="/">Tabletop Village</a>
+    <span class="eyebrow">File scan</span>
+  </header>
+  <main>
+    <section class="intro" aria-labelledby="page-title">
+      <h1 id="page-title">Upload a card image.</h1>
+      <p>Send a photo or scan to the card-recognition service. The original image is retained in the scan archive, then the best matching cards are returned below.</p>
+    </section>
+    <section class="workspace" aria-label="Card image upload">
+      <div>
+        <label class="panel dropzone" id="dropzone" for="imageInput" tabindex="0">
+          <div class="drop-mark" aria-hidden="true">↑</div>
+          <h2>Drop an image</h2>
+          <p>Drag a JPG, PNG, WebP, or other image here, or press Enter to choose a file.</p>
+          <input id="imageInput" type="file" accept="image/*">
+          <img id="preview" alt="Selected card image preview">
+          <div class="file-meta" id="fileMeta"><span class="file-name" id="fileName"></span><span class="file-size" id="fileSize"></span></div>
+        </label>
+        <button id="scanButton" type="button" disabled>Scan image</button>
+      </div>
+      <aside class="panel results" aria-live="polite">
+        <div class="results-head"><h2>Top matches</h2><span id="status">Waiting</span></div>
+        <div id="results"><p class="empty">Choose an image to begin. Results will include the three most similar cards found by the scanner.</p></div>
+      </aside>
+    </section>
+  </main>
+  <dialog id="imageDialog" aria-label="Enlarged card image">
+    <div class="dialog-head"><span id="dialogTitle">Card image</span><button class="dialog-close" id="dialogClose" type="button">Close</button></div>
+    <img id="dialogImage" alt="">
+  </dialog>
+  <script>
+    const input = document.getElementById("imageInput");
+    const dropzone = document.getElementById("dropzone");
+    const preview = document.getElementById("preview");
+    const fileMeta = document.getElementById("fileMeta");
+    const fileName = document.getElementById("fileName");
+    const fileSize = document.getElementById("fileSize");
+    const scanButton = document.getElementById("scanButton");
+    const results = document.getElementById("results");
+    const status = document.getElementById("status");
+    const imageDialog = document.getElementById("imageDialog");
+    const dialogImage = document.getElementById("dialogImage");
+    const dialogTitle = document.getElementById("dialogTitle");
+    let file;
+
+    function formatBytes(bytes) { return bytes < 1024 * 1024 ? `${Math.ceil(bytes / 1024)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`; }
+    function chooseFile(next) {
+      if (!next || !next.type.startsWith("image/")) { showError("Please choose an image file."); return; }
+      file = next;
+      preview.src = URL.createObjectURL(file);
+      preview.style.display = "block";
+      fileName.textContent = file.name;
+      fileSize.textContent = formatBytes(file.size);
+      fileMeta.style.display = "flex";
+      dropzone.classList.add("has-file");
+      scanButton.disabled = false;
+      status.textContent = "Ready";
+      results.innerHTML = '<p class="empty">Image selected. Press <strong>Scan image</strong> when ready.</p>';
+    }
+    function showError(message) { results.innerHTML = `<p class="notice">${message}</p>`; status.textContent = "Error"; }
+    function openCardImage(url, title) {
+      dialogImage.src = url;
+      dialogImage.alt = title;
+      dialogTitle.textContent = title;
+      imageDialog.showModal();
+    }
+    input.addEventListener("change", () => chooseFile(input.files[0]));
+    dropzone.addEventListener("dragover", event => { event.preventDefault(); dropzone.classList.add("dragging"); });
+    dropzone.addEventListener("dragleave", () => dropzone.classList.remove("dragging"));
+    dropzone.addEventListener("drop", event => { event.preventDefault(); dropzone.classList.remove("dragging"); chooseFile(event.dataTransfer.files[0]); });
+    dropzone.addEventListener("keydown", event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); input.click(); } });
+
+    function renderMatches(matches) {
+      if (!matches.length) { results.innerHTML = '<p class="empty">No cards were detected in that image. Try a closer, sharper photo with the card fully visible.</p>'; return; }
+      results.innerHTML = matches.map(match => {
+        const details = match.details || {};
+        const label = details.name || `Card #${match.card_id}`;
+        const variant = details.sub_type_name ? ` · ${details.sub_type_name}` : "";
+        const number = details.ext_data && details.ext_data.extNumber ? `#${details.ext_data.extNumber}` : "";
+        const score = Math.max(0, Math.min(100, match.similarity * 100));
+        const art = details.image_url ? `<button class="card-art" type="button" data-image="${details.image_url}" data-title="${label}" aria-label="Enlarge ${label}"><img src="${details.image_url}" alt="${label}"></button>` : "";
+        return `<article class="match"><div class="match-body">${art}<div><div class="match-top"><div><div class="match-name">${label}</div><div class="match-sub">${number}${variant}</div></div><strong class="score">${score.toFixed(1)}%</strong></div><div class="bar"><span style="width:${score}%"></span></div></div></div></article>`;
+      }).join("");
+      results.querySelectorAll(".card-art").forEach(button => button.addEventListener("click", () => openCardImage(button.dataset.image, button.dataset.title)));
+    }
+    document.getElementById("dialogClose").addEventListener("click", () => imageDialog.close());
+    imageDialog.addEventListener("click", event => { if (event.target === imageDialog) imageDialog.close(); });
+    scanButton.addEventListener("click", async () => {
+      if (!file) return;
+      scanButton.disabled = true;
+      status.textContent = "Scanning";
+      status.classList.add("loading");
+      results.innerHTML = '<p class="empty loading">Reading image and searching the card index…</p>';
+      const formData = new FormData();
+      formData.append("image", file);
+      try {
+        const response = await fetch("/scan", { method: "POST", body: formData });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || payload.message || "The scan request failed.");
+        renderMatches(payload);
+        status.textContent = `${payload.length} found`;
+      } catch (error) { showError(error.message || "Unable to reach the scanner."); }
+      finally { scanButton.disabled = false; status.classList.remove("loading"); }
+    });
+  </script>
+</body>
+</html>

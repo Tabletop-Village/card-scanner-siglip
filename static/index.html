@@ -1,0 +1,1040 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Card Scanner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0a0a0c;
+    --surface: #131318;
+    --surface-2: #1a1a22;
+    --border: #2a2a35;
+    --text: #e8e6e3;
+    --text-dim: #8a8a95;
+    --accent: #f0c040;
+    --accent-dim: #b8922e;
+    --red: #e05555;
+    --green: #50c878;
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    overflow: hidden;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Header ── */
+  header {
+    padding: 16px 24px;
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  header h1 {
+    font-family: 'Instrument Serif', serif;
+    font-weight: 400;
+    font-size: 1.5rem;
+    letter-spacing: -0.02em;
+    color: var(--accent);
+  }
+
+  header span {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  header .upload-link {
+    margin-left: auto;
+    color: var(--accent);
+    font-size: 0.65rem;
+    text-decoration: none;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  header .upload-link:hover, header .upload-link:focus-visible { color: var(--text); }
+
+  /* ── Main layout ── */
+  main {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+  }
+
+  /* ── Viewfinder ── */
+  .viewfinder {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    background: #000;
+    min-width: 0;
+  }
+
+  .viewfinder video,
+  .viewfinder canvas {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .viewfinder canvas { display: none; }
+
+  .viewfinder.captured video { display: none; }
+  .viewfinder.captured canvas { display: block; }
+
+  /* Corner brackets overlay */
+  .brackets {
+    position: absolute;
+    inset: 15%;
+    pointer-events: none;
+  }
+
+  .brackets::before, .brackets::after,
+  .brackets span::before, .brackets span::after {
+    content: '';
+    position: absolute;
+    width: 28px;
+    height: 28px;
+    border-color: var(--accent);
+    border-style: solid;
+    opacity: 0.5;
+  }
+
+  .brackets::before { top: 0; left: 0; border-width: 2px 0 0 2px; }
+  .brackets::after { top: 0; right: 0; border-width: 2px 2px 0 0; }
+  .brackets span::before { bottom: 0; left: 0; border-width: 0 0 2px 2px; }
+  .brackets span::after { bottom: 0; right: 0; border-width: 0 2px 2px 0; }
+
+  .brackets span {
+    position: absolute;
+    inset: 0;
+  }
+
+  /* Camera error */
+  .cam-error {
+    color: var(--red);
+    font-size: 0.8rem;
+    text-align: center;
+    padding: 24px;
+  }
+
+  /* ── Controls bar ── */
+  .controls {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 16px;
+    padding: 24px;
+    background: linear-gradient(transparent, rgba(0,0,0,0.8));
+  }
+
+  .btn-capture {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    border: 3px solid var(--accent);
+    background: transparent;
+    cursor: pointer;
+    position: relative;
+    transition: transform 0.15s, background 0.15s;
+  }
+
+  .btn-capture::after {
+    content: '';
+    position: absolute;
+    inset: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+    transition: transform 0.15s;
+  }
+
+  .btn-capture:hover { transform: scale(1.08); }
+  .btn-capture:active::after { transform: scale(0.85); }
+
+  .btn-capture:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .viewfinder.captured .btn-capture { display: none; }
+
+  .btn-reset {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    border: 3px solid var(--text-dim);
+    background: transparent;
+    cursor: pointer;
+    position: relative;
+    transition: transform 0.15s, border-color 0.15s;
+    display: none;
+  }
+
+  .btn-reset::before, .btn-reset::after {
+    content: '';
+    position: absolute;
+    width: 24px;
+    height: 3px;
+    background: var(--text-dim);
+    top: 50%;
+    left: 50%;
+    border-radius: 2px;
+    transition: background 0.15s;
+  }
+
+  .btn-reset::before { transform: translate(-50%, -50%) rotate(45deg); }
+  .btn-reset::after { transform: translate(-50%, -50%) rotate(-45deg); }
+
+  .btn-reset:hover {
+    transform: scale(1.08);
+    border-color: var(--text);
+  }
+
+  .btn-reset:hover::before, .btn-reset:hover::after {
+    background: var(--text);
+  }
+
+
+  .viewfinder.captured .btn-reset { display: block; }
+
+  .poll-control, .stability-control {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: rgba(12, 12, 14, 0.78);
+    color: var(--text-dim);
+    font: 0.65rem 'DM Mono', monospace;
+  }
+  .poll-control input, .stability-control input { width: 92px; accent-color: var(--accent); }
+  .stability-control { top: 58px; }
+  .poll-value { min-width: 42px; color: var(--text); }
+
+  .results-panel {
+    width: 340px;
+    flex-shrink: 0;
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    overflow-y: auto;
+  }
+
+  .results-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+  }
+
+  .results-empty {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    padding: 24px;
+    text-align: center;
+    line-height: 1.7;
+  }
+
+  /* Loading state */
+  .spinner {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    padding: 48px 24px;
+  }
+
+  .spinner.active { display: flex; }
+  .spinner.active ~ .results-empty { display: none; }
+  .spinner.active ~ .results-list { display: none; }
+
+  .spinner-ring {
+    width: 32px;
+    height: 32px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  .spinner-text {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Result cards */
+  .results-list { display: flex; flex-direction: column; }
+
+  .result-card {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: 14px;
+    cursor: default;
+    transition: background 0.15s;
+  }
+
+  .result-card:hover { background: var(--surface-2); }
+
+  .result-rank {
+    font-family: 'Instrument Serif', serif;
+    font-size: 1.6rem;
+    color: var(--accent-dim);
+    line-height: 1;
+    flex-shrink: 0;
+    width: 24px;
+  }
+
+  .result-card:first-child .result-rank { color: var(--accent); }
+
+  .result-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .result-name {
+    font-size: 0.8rem;
+    font-weight: 500;
+    line-height: 1.35;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  .result-meta {
+    font-size: 0.68rem;
+    color: var(--text-dim);
+  }
+
+  .result-thumb {
+    width: 52px;
+    height: 72px;
+    border-radius: 4px;
+    overflow: hidden;
+    flex-shrink: 0;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+  }
+
+  .result-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .result-prices {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .price-tag {
+    font-size: 0.7rem;
+    display: flex;
+    gap: 4px;
+  }
+
+  .price-label {
+    color: var(--text-dim);
+  }
+
+  .price-value {
+    color: var(--green);
+    font-weight: 500;
+  }
+
+  .similarity-bar {
+    height: 3px;
+    background: var(--surface-2);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 2px;
+  }
+
+  .similarity-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+    transition: width 0.12s linear;
+  }
+
+  .result-card { cursor: pointer; }
+
+  /* ── Detail modal ── */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 200;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    animation: fadeIn 0.2s ease;
+  }
+
+  .modal-overlay.open { display: flex; }
+
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    max-width: 480px;
+    width: 100%;
+    max-height: 85vh;
+    overflow-y: auto;
+    animation: modalUp 0.25s ease;
+  }
+
+  @keyframes modalUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .modal-top {
+    display: flex;
+    gap: 20px;
+    padding: 24px 24px 16px;
+  }
+
+  .modal-img {
+    width: 120px;
+    height: 167px;
+    border-radius: 6px;
+    overflow: hidden;
+    flex-shrink: 0;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+  }
+
+  .modal-img img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .modal-headline {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .modal-name {
+    font-family: 'Instrument Serif', serif;
+    font-size: 1.3rem;
+    line-height: 1.25;
+    color: var(--text);
+  }
+
+  .modal-sub {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+  }
+
+  .modal-similarity {
+    font-size: 0.72rem;
+    color: var(--accent);
+    margin-top: auto;
+  }
+
+  .modal-section {
+    padding: 0 24px 20px;
+  }
+
+  .modal-section-title {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .modal-prices {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 16px;
+  }
+
+  .modal-price {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.75rem;
+  }
+
+  .modal-price-label { color: var(--text-dim); }
+  .modal-price-value { color: var(--green); font-weight: 500; }
+
+  .modal-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .modal-field {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.72rem;
+    gap: 12px;
+  }
+
+  .modal-field-key {
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  .modal-field-val {
+    color: var(--text);
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .modal-actions {
+    padding: 0 24px 24px;
+    display: flex;
+    gap: 10px;
+  }
+
+  .modal-btn {
+    flex: 1;
+    padding: 10px;
+    border-radius: 6px;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.72rem;
+    text-align: center;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    text-decoration: none;
+    border: none;
+  }
+
+  .modal-btn-primary {
+    background: var(--accent);
+    color: var(--bg);
+  }
+
+  .modal-btn-primary:hover { background: #f5cd5a; }
+
+  .modal-btn-secondary {
+    background: var(--surface-2);
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+  }
+
+  .modal-btn-secondary:hover {
+    background: var(--border);
+    color: var(--text);
+  }
+
+  /* Error toast */
+  .error-toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(100px);
+    background: var(--red);
+    color: #fff;
+    font-size: 0.75rem;
+    padding: 10px 20px;
+    border-radius: 8px;
+    z-index: 100;
+    transition: transform 0.3s ease;
+    pointer-events: none;
+  }
+
+  .error-toast.visible {
+    transform: translateX(-50%) translateY(0);
+  }
+
+  /* ── Mobile ── */
+  @media (max-width: 700px) {
+    main { flex-direction: column; }
+
+    .viewfinder { flex: none; height: 55vh; }
+
+    .results-panel {
+      width: 100%;
+      border-left: none;
+      border-top: 1px solid var(--border);
+      flex: 1;
+    }
+
+    .brackets { inset: 10%; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Card Scanner</h1>
+  <span>Pok&eacute;mon TCG</span>
+  <a class="upload-link" href="/static/upload.html">Upload image</a>
+</header>
+
+<main>
+  <div class="viewfinder" id="viewfinder">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas"></canvas>
+    <div class="poll-control">
+      <label for="pollInterval">Live rate</label>
+      <input id="pollInterval" type="range" min="50" max="1000" step="50" value="100" aria-label="Live recognition polling interval">
+      <output class="poll-value" id="pollValue">100 ms</output>
+    </div>
+    <div class="stability-control">
+      <label for="stablePeriod">Stable over</label>
+      <input id="stablePeriod" type="range" min="0.5" max="5" step="0.5" value="1" aria-label="Match stabilization period">
+      <output class="poll-value" id="stableValue">1.0 s</output>
+    </div>
+    <div class="brackets"><span></span></div>
+    <div class="controls">
+      <button class="btn-reset" id="btnReset">Retake</button>
+      <button class="btn-capture" id="btnCapture" title="Capture"></button>
+    </div>
+  </div>
+
+  <div class="results-panel">
+    <div class="results-header">Results</div>
+    <div class="spinner" id="spinner">
+      <div class="spinner-ring"></div>
+      <div class="spinner-text">Scanning</div>
+    </div>
+    <div class="results-empty" id="emptyState">
+      Point camera at a<br>Pok&eacute;mon card and capture
+    </div>
+    <div class="results-list" id="resultsList"></div>
+  </div>
+</main>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal" id="modal"></div>
+</div>
+
+<div class="error-toast" id="errorToast"></div>
+
+<script>
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const viewfinder = document.getElementById('viewfinder');
+const btnCapture = document.getElementById('btnCapture');
+const btnReset = document.getElementById('btnReset');
+const spinner = document.getElementById('spinner');
+const emptyState = document.getElementById('emptyState');
+const resultsList = document.getElementById('resultsList');
+const errorToast = document.getElementById('errorToast');
+const modalOverlay = document.getElementById('modalOverlay');
+const modal = document.getElementById('modal');
+const pollInterval = document.getElementById('pollInterval');
+const pollValue = document.getElementById('pollValue');
+const stablePeriod = document.getElementById('stablePeriod');
+const stableValue = document.getElementById('stableValue');
+
+let stream = null;
+let lastResults = []; // store for detail view
+let liveSocket = null;
+let liveTimer = null;
+let liveSending = false;
+const liveCanvas = document.createElement('canvas');
+const liveCtx = liveCanvas.getContext('2d');
+
+// ── Live recognition ──
+function currentPollInterval() {
+  return Number(pollInterval.value);
+}
+
+function restartLiveTimer() {
+  if (liveTimer) clearInterval(liveTimer);
+  liveTimer = liveSocket?.readyState === WebSocket.OPEN
+    ? setInterval(sendLiveFrame, currentPollInterval())
+    : null;
+}
+
+pollInterval.addEventListener('input', () => {
+  pollValue.textContent = `${currentPollInterval()} ms`;
+  restartLiveTimer();
+});
+
+function sendStablePeriod() {
+  if (liveSocket?.readyState === WebSocket.OPEN) {
+    liveSocket.send(JSON.stringify({ type: 'set_stable_period', seconds: Number(stablePeriod.value) }));
+  }
+}
+
+stablePeriod.addEventListener('input', () => {
+  stableValue.textContent = `${Number(stablePeriod.value).toFixed(1)} s`;
+  sendStablePeriod();
+});
+
+function startLiveRecognition() {
+  if (liveSocket || !video.videoWidth) return;
+  const wsScheme = location.protocol === 'https:' ? 'wss' : 'ws';
+  liveSocket = new WebSocket(`${wsScheme}://${location.host}/live-recognize`);
+  liveSocket.binaryType = 'arraybuffer';
+  liveSocket.addEventListener('open', () => {
+    sendStablePeriod();
+    liveTimer = setInterval(sendLiveFrame, currentPollInterval());
+  });
+  liveSocket.addEventListener('message', (event) => {
+    const message = JSON.parse(event.data);
+    if (message.type === 'result') {
+      liveSending = false;
+      spinner.classList.remove('active');
+      emptyState.style.display = 'none';
+      renderResults(message.results);
+    } else if (message.type === 'error') {
+      liveSending = false;
+      if (message.error !== 'frame_rate_exceeded') showError(message.error.replaceAll('_', ' '));
+    }
+  });
+  liveSocket.addEventListener('close', () => {
+    if (liveTimer) clearInterval(liveTimer);
+    liveTimer = null;
+    liveSocket = null;
+    liveSending = false;
+  });
+  liveSocket.addEventListener('error', () => showError('Live recognition connection failed; capture still works.'));
+}
+
+function sendLiveFrame() {
+  if (viewfinder.classList.contains('captured')) return;
+  if (liveSending || liveSocket.readyState !== WebSocket.OPEN) return;
+  const maxWidth = 960;
+  const scale = Math.min(1, maxWidth / video.videoWidth);
+  liveCanvas.width = Math.round(video.videoWidth * scale);
+  liveCanvas.height = Math.round(video.videoHeight * scale);
+  liveCtx.drawImage(video, 0, 0, liveCanvas.width, liveCanvas.height);
+  liveSending = true;
+  liveCanvas.toBlob(async (blob) => {
+    if (!blob || !liveSocket || liveSocket.readyState !== WebSocket.OPEN) {
+      liveSending = false;
+      return;
+    }
+    liveSocket.send(await blob.arrayBuffer());
+  }, 'image/jpeg', 0.75);
+}
+
+// ── Camera ──
+async function startCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }
+    });
+    video.srcObject = stream;
+    video.addEventListener('loadedmetadata', startLiveRecognition, { once: true });
+  } catch (err) {
+    viewfinder.innerHTML = `<div class="cam-error">Camera access denied.<br>Please allow camera permissions.</div>`;
+  }
+}
+
+// ── Capture ──
+function capture() {
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  ctx.drawImage(video, 0, 0);
+  viewfinder.classList.add('captured');
+  btnCapture.disabled = true;
+  scan();
+}
+
+// ── Reset ──
+function reset() {
+  viewfinder.classList.remove('captured');
+  btnCapture.disabled = false;
+  spinner.classList.remove('active');
+  resultsList.innerHTML = '';
+  emptyState.style.display = '';
+  lastResults = [];
+}
+
+// ── Scan API ──
+async function scan() {
+  spinner.classList.add('active');
+  emptyState.style.display = 'none';
+  resultsList.innerHTML = '';
+
+  try {
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+    const form = new FormData();
+    form.append('image', blob, 'capture.jpg');
+
+    const resp = await fetch('/scan?top_n=3', { method: 'POST', body: form });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.error || err.detail || `HTTP ${resp.status}`);
+    }
+
+    const results = await resp.json();
+    spinner.classList.remove('active');
+    renderResults(results);
+  } catch (err) {
+    spinner.classList.remove('active');
+    showError(err.message);
+  }
+}
+
+// ── Render list ──
+function displayPercentage(r) {
+  return r.stable_percentage != null ? r.stable_percentage : r.similarity * 100;
+}
+
+function createResultCard(r, index) {
+  const card = document.createElement('div');
+  card.className = 'result-card';
+  card.dataset.cardId = r.card_id;
+  card.innerHTML = `
+    <div class="result-rank"></div>
+    <div class="result-thumb" hidden><img alt="" loading="lazy"></div>
+    <div class="result-info">
+      <div class="result-name"></div>
+      <div class="result-prices"></div>
+      <div class="result-meta"></div>
+      <div class="similarity-bar"><div class="similarity-fill"></div></div>
+    </div>`;
+  updateResultCard(card, r, index);
+  return card;
+}
+
+function updateResultCard(card, r, index) {
+  const d = r.details || {};
+  const name = d.clean_name || d.name || `Card #${r.card_id}`;
+  const img = d.image_url || '';
+  const market = d.market_price != null ? `$${Number(d.market_price).toFixed(2)}` : null;
+  const low = d.low_price != null ? `$${Number(d.low_price).toFixed(2)}` : null;
+  const simPct = displayPercentage(r).toFixed(1);
+  const rawPct = r.raw_percentage != null ? r.raw_percentage.toFixed(1) : simPct;
+  card.dataset.idx = index;
+  card.querySelector('.result-rank').textContent = index + 1;
+  card.querySelector('.result-name').textContent = name;
+  const thumb = card.querySelector('.result-thumb');
+  const image = thumb.querySelector('img');
+  thumb.hidden = !img;
+  if (img && image.src !== img) image.src = img;
+  card.querySelector('.result-prices').innerHTML =
+    `${market ? `<span class="price-tag"><span class="price-label">Mkt</span><span class="price-value">${market}</span></span>` : ''}` +
+    `${low ? `<span class="price-tag"><span class="price-label">Low</span><span class="price-value">${low}</span></span>` : ''}`;
+  card.querySelector('.result-meta').textContent =
+    `${simPct}% stable${r.raw_percentage != null ? ` · ${rawPct}% raw` : ' match'}`;
+  card.querySelector('.similarity-fill').style.width = `${simPct}%`;
+}
+
+function renderResults(results) {
+  if (!results.length) {
+    // A single live-frame miss must not displace the last stable cards.
+    if (lastResults.length) return;
+    emptyState.textContent = 'No cards detected';
+    emptyState.style.display = '';
+    return;
+  }
+  const seen = new Map();
+  for (const r of results) {
+    const rawScore = r.raw_percentage != null ? r.raw_percentage : r.similarity * 100;
+    const existing = seen.get(r.card_id);
+    const existingRawScore = existing ? (existing.raw_percentage != null ? existing.raw_percentage : existing.similarity * 100) : -Infinity;
+    if (!existing || rawScore > existingRawScore) seen.set(r.card_id, r);
+  }
+  lastResults = [...seen.values()].slice(0, 3);
+  emptyState.style.display = 'none';
+  const existingCards = new Map([...resultsList.children].map(card => [String(card.dataset.cardId), card]));
+  const orderedCards = lastResults.map((r, index) => {
+    const card = existingCards.get(String(r.card_id)) || createResultCard(r, index);
+    updateResultCard(card, r, index);
+    return card;
+  });
+  for (const card of orderedCards) resultsList.appendChild(card);
+  for (const card of [...resultsList.children]) {
+    if (!orderedCards.includes(card)) card.remove();
+  }
+}
+
+// ── Detail modal ──
+resultsList.addEventListener('click', (e) => {
+  const card = e.target.closest('.result-card');
+  if (!card) return;
+  const idx = parseInt(card.dataset.idx, 10);
+  if (idx >= 0 && idx < lastResults.length) openDetail(lastResults[idx]);
+});
+
+function openDetail(r) {
+  const d = r.details || {};
+  const name = d.clean_name || d.name || `Card #${r.card_id}`;
+  const img = d.image_url || '';
+  const simPct = displayPercentage(r).toFixed(1);
+  const tcgUrl = d.url || '';
+
+  // Price fields
+  const priceFields = [
+    ['Market', d.market_price],
+    ['Low', d.low_price],
+    ['Mid', d.mid_price],
+    ['High', d.high_price],
+    ['Direct Low', d.direct_low_price],
+  ].filter(([, v]) => v != null);
+
+  // Info fields
+  const infoFields = [
+    ['Product ID', r.card_id],
+    ['Sub Type', d.sub_type_name],
+    ['Category ID', d.category_id],
+    ['Group ID', d.group_id],
+    ['Image Count', d.image_count],
+    ['Last Updated', d.last_updated],
+    ['Modified', d.modified_on],
+  ].filter(([, v]) => v != null && v !== '');
+
+  // Ext data fields (nested object)
+  const extFields = [];
+  if (d.ext_data && typeof d.ext_data === 'object') {
+    for (const [k, v] of Object.entries(d.ext_data)) {
+      if (v != null && v !== '') extFields.push([k, v]);
+    }
+  }
+
+  modal.innerHTML = `
+    <div class="modal-top">
+      ${img ? `<div class="modal-img"><img src="${img}" alt=""></div>` : ''}
+      <div class="modal-headline">
+        <div class="modal-name">${esc(name)}</div>
+        ${d.sub_type_name ? `<div class="modal-sub">${esc(String(d.sub_type_name))}</div>` : ''}
+        <div class="modal-similarity">${simPct}% match</div>
+      </div>
+    </div>
+
+    ${priceFields.length ? `
+      <div class="modal-section">
+        <div class="modal-section-title">Pricing</div>
+        <div class="modal-prices">
+          ${priceFields.map(([label, val]) => `
+            <div class="modal-price">
+              <span class="modal-price-label">${label}</span>
+              <span class="modal-price-value">$${Number(val).toFixed(2)}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    ` : ''}
+
+    ${infoFields.length ? `
+      <div class="modal-section">
+        <div class="modal-section-title">Details</div>
+        <div class="modal-fields">
+          ${infoFields.map(([k, v]) => `
+            <div class="modal-field">
+              <span class="modal-field-key">${esc(k)}</span>
+              <span class="modal-field-val">${esc(String(v))}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    ` : ''}
+
+    ${extFields.length ? `
+      <div class="modal-section">
+        <div class="modal-section-title">Extended Data</div>
+        <div class="modal-fields">
+          ${extFields.map(([k, v]) => `
+            <div class="modal-field">
+              <span class="modal-field-key">${esc(k)}</span>
+              <span class="modal-field-val">${esc(String(v))}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    ` : ''}
+
+    <div class="modal-actions">
+      ${tcgUrl ? `<a class="modal-btn modal-btn-primary" href="${esc(tcgUrl)}" target="_blank" rel="noopener">View on TCGPlayer</a>` : ''}
+      <button class="modal-btn modal-btn-secondary" id="modalClose">Close</button>
+    </div>
+  `;
+
+  modalOverlay.classList.add('open');
+  modal.querySelector('#modalClose').addEventListener('click', closeDetail);
+}
+
+function closeDetail() {
+  modalOverlay.classList.remove('open');
+}
+
+modalOverlay.addEventListener('click', (e) => {
+  if (e.target === modalOverlay) closeDetail();
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeDetail();
+});
+
+function esc(s) {
+  const el = document.createElement('span');
+  el.textContent = s;
+  return el.innerHTML;
+}
+
+// ── Error ──
+function showError(msg) {
+  errorToast.textContent = msg;
+  errorToast.classList.add('visible');
+  setTimeout(() => errorToast.classList.remove('visible'), 3500);
+}
+
+// ── Events ──
+btnCapture.addEventListener('click', capture);
+btnReset.addEventListener('click', reset);
+
+startCamera();
+</script>
+</body>
+</html>
