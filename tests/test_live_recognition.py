@@ -13,13 +13,16 @@ def _jpeg_bytes() -> bytes:
 
 
 class _Scanner:
+    def __init__(self):
+        self.scan_calls = []  # list of (k, margin_pct) per scan() call
+
     def new_tracker(self):
         return object()  # opaque; just needs to round-trip through scan()
 
-    def scan(self, image, k, verify=False, tracker=None):
+    def scan(self, image, k=None, verify=False, tracker=None, margin_pct=None):
         assert image.shape == (8, 8, 3)
-        assert k == 3
         assert tracker is not None
+        self.scan_calls.append((k, margin_pct))
         return [
             {"box": [0, 0, 8, 8], "track_id": 1, "matches": [{"card_id": 42, "similarity": 0.8}]},
             {"box": [4, 4, 8, 8], "track_id": 2, "matches": [{"card_id": 99, "similarity": 0.5}]},
@@ -77,6 +80,53 @@ def test_live_recognize_websocket_returns_per_card_track_ids_and_raw_similarity(
             "similarity": 0.5,
         },
     ]
+
+
+def test_live_recognize_websocket_defaults_to_margin_mode():
+    """No top_n/margin_pct on the connection URL -> same default as /scan:
+    k=None (margin mode), margin_pct left for Scanner/matcher to default."""
+    scanner = _Scanner()
+    app.state.scanner = scanner
+    app.state.db = _Database()
+    client = TestClient(app)
+    try:
+        with client.websocket_connect("/live-recognize") as websocket:
+            websocket.send_bytes(_jpeg_bytes())
+            websocket.receive_json()
+    finally:
+        client.close()
+
+    assert scanner.scan_calls == [(None, None)]
+
+
+def test_live_recognize_websocket_honors_top_n_query_param():
+    scanner = _Scanner()
+    app.state.scanner = scanner
+    app.state.db = _Database()
+    client = TestClient(app)
+    try:
+        with client.websocket_connect("/live-recognize?top_n=5") as websocket:
+            websocket.send_bytes(_jpeg_bytes())
+            websocket.receive_json()
+    finally:
+        client.close()
+
+    assert scanner.scan_calls == [(5, None)]
+
+
+def test_live_recognize_websocket_honors_margin_pct_query_param():
+    scanner = _Scanner()
+    app.state.scanner = scanner
+    app.state.db = _Database()
+    client = TestClient(app)
+    try:
+        with client.websocket_connect("/live-recognize?margin_pct=3.5") as websocket:
+            websocket.send_bytes(_jpeg_bytes())
+            websocket.receive_json()
+    finally:
+        client.close()
+
+    assert scanner.scan_calls == [(None, 3.5)]
 
 
 def test_live_recognize_websocket_rejects_frames_above_twenty_per_second():

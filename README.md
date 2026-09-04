@@ -194,6 +194,15 @@ across frames as long as they stay in view -- there's no server-side score
 smoothing or aggregation. If you want a "hold steady for N frames before
 committing" UX, implement it client-side by grouping results on `track_id`.
 
+Same `top_n`/`margin_pct` as `/scan`, but set once as query params on the
+connection URL (fixed for the connection's lifetime, alongside its
+tracker) rather than per-request:
+
+```
+wss://host/live-recognize?top_n=5
+wss://host/live-recognize?margin_pct=3
+```
+
 Send binary JPEG frames (max 20 FPS; faster sends get an `error` reply, not
 a queued frame). The server replies with one JSON message per frame:
 

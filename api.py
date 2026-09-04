@@ -614,7 +614,12 @@ async def ready():
 LIVE_RECOGNITION_MAX_FPS = 20
 
 
-async def _live_frame_results(image: np.ndarray, tracker) -> list[dict]:
+async def _live_frame_results(
+    image: np.ndarray,
+    tracker,
+    top_n: Optional[int] = None,
+    margin_pct: Optional[float] = None,
+) -> list[dict]:
     """Recognize one camera frame and enrich its candidate IDs from the DB.
 
     `tracker` is one connection's isolated Scanner.new_tracker() instance
@@ -623,6 +628,10 @@ async def _live_frame_results(image: np.ndarray, tracker) -> list[dict]:
     No server-side score smoothing: raw per-frame similarity only, so
     frontends can implement whatever temporal aggregation they want,
     keyed by track_id.
+
+    `top_n`/`margin_pct` behave exactly like /scan's: top_n fixes the
+    match count per detected card; omitting it switches to margin mode
+    (every match within margin_pct points of that card's best score).
     """
     scanner = getattr(app.state, "scanner", None)
     db = getattr(app.state, "db", None)
@@ -630,7 +639,8 @@ async def _live_frame_results(image: np.ndarray, tracker) -> list[dict]:
         raise RuntimeError("service_not_ready")
 
     detected_cards = await asyncio.wait_for(
-        asyncio.to_thread(scanner.scan, image, k=3, verify=False, tracker=tracker),
+        asyncio.to_thread(scanner.scan, image, k=top_n, verify=False,
+                           tracker=tracker, margin_pct=margin_pct),
         timeout=settings.yolo_timeout,
     )
     columns = db.return_columns()
@@ -651,13 +661,22 @@ async def _live_frame_results(image: np.ndarray, tracker) -> list[dict]:
 
 
 @app.websocket("/live-recognize")
-async def live_recognize(websocket: WebSocket):
+async def live_recognize(
+    websocket: WebSocket,
+    top_n: Optional[int] = None,
+    margin_pct: Optional[float] = None,
+):
     """Recognize JPEG camera frames, enforcing 20 FPS per connection.
 
     A connection owns one isolated tracker (Scanner.new_tracker()), so
     `track_id`s stay stable for the same physical card across frames on
     that connection without leaking into any other connection's tracks.
     There is no server-side score smoothing -- see `_live_frame_results`.
+
+    `top_n`/`margin_pct` are query params on the connection URL (e.g.
+    `/live-recognize?top_n=5` or `/live-recognize?margin_pct=3`), fixed
+    for the lifetime of the connection just like its tracker -- same
+    semantics as /scan's (omitting top_n switches to margin mode).
     """
     await websocket.accept()
     scanner = getattr(app.state, "scanner", None)
@@ -687,7 +706,7 @@ async def live_recognize(websocket: WebSocket):
                 await websocket.send_json({"type": "error", "error": "invalid_jpeg"})
                 continue
             try:
-                results = await _live_frame_results(image, tracker)
+                results = await _live_frame_results(image, tracker, top_n=top_n, margin_pct=margin_pct)
             except asyncio.TimeoutError:
                 await websocket.send_json({"type": "error", "error": "recognition_timed_out"})
                 continue

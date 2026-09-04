@@ -143,6 +143,17 @@ across frames as long as they stay in view -- there's no server-side score
 smoothing or aggregation. If you want a "hold steady for N frames before
 committing" UX, implement it client-side by grouping results on `track_id`.
 
+**Query parameters (set once, at connect time):**
+
+| Parameter    | Type    | Required | Description                              |
+|--------------|---------|----------|-------------------------------------------|
+| `top_n`      | Integer | No       | Number of top matches per detected card. If omitted, returns every match within `margin_pct` percentage points of that card's best match instead of a fixed count -- same semantics as `/scan` |
+| `margin_pct` | Float   | No       | Margin used when `top_n` is omitted (default: 2.0). Ignored if `top_n` is given |
+
+Unlike `top_n`/`margin_pct` on `/scan` (per-request), these apply for the
+whole connection -- set once alongside the tracker when the socket opens,
+e.g. `wss://host/live-recognize?top_n=5` or `wss://host/live-recognize?margin_pct=3`.
+
 **Protocol:**
 
 Send binary JPEG frames (max 20 FPS; faster sends get an `error` reply, not
