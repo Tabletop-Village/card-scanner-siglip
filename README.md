@@ -44,8 +44,9 @@ Trained on synthetic composites (real catalog card photos, perspective-warped
 and randomly placed over COCO backgrounds) spanning 9 TCGs, each capped to
 10k images so no single game's art style dominates -- the model only needs
 to learn "a rectangular card at any rotation," not per-game visual
-conventions. See the `yolo-pose-training` project for the full training
-writeup.
+conventions. See
+[`yolo-pose-training`](https://github.com/Tabletop-Village/yolo-pose-training)
+for the full training writeup.
 
 ## The vector index
 
