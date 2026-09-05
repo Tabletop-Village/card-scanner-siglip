@@ -23,8 +23,18 @@ mask, then approximate its 4 corners from the mask polygon
 the polygon approximation gets noisy exactly when you need it most.
 Predicting the 4 corners directly as pose keypoints stays accurate
 regardless of rotation angle, since it's a direct regression rather than
-a derived approximation. See the project's model-comparison writeup for a
-side-by-side example.
+a derived approximation.
+
+Live detections on a real, messy multi-card photo (green quad = the
+model's 4 predicted corners, gray box = its bounding box) -- all 7 cards
+found and tightly outlined despite heavy rotation and overlap. Notably,
+one of them (the holographic "Krillin, Surprise Move") is a Dragon Ball
+Super card -- a game not represented anywhere in the training corpus below
+-- and it's still detected and cleanly outlined just as well as the rest,
+since the model only ever learned "a rectangular card, at any rotation,"
+not per-game visual conventions:
+
+![Sample detections on a real photo](docs/sample_detection.jpg)
 
 ## Training data
 
@@ -37,6 +47,14 @@ the model only needs to learn "a rectangular card, at any rotation/scale,
 photographed against a cluttered background," not per-game visual
 conventions, so per-game diversity matters more than any one game's full
 catalog coverage.
+
+A sample of labeled training examples (ground-truth keypoints drawn in
+green), across several of COCO's very different background scenes:
+
+![Sample training examples](docs/training_samples.jpg)
+
+Full training pipeline + results:
+[Tabletop-Village/yolo-pose-training](https://github.com/Tabletop-Village/yolo-pose-training).
 
 ## Usage
 
