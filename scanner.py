@@ -20,6 +20,7 @@ from ultralytics.utils.checks import check_yaml
 from ultralytics.trackers import BOTSORT, BYTETracker
 import cv2
 import numpy as np
+import geometry
 import siglip_matcher
 from config import settings
 
@@ -202,9 +203,27 @@ class Scanner:
         same instance on every frame. Without a tracker (the stateless
         REST /scan and /identify path), no `track_id` key is present at all.
         k=None switches to margin mode -- see siglip_matcher.search().
+
+        Two geometry-only sanity checks, independent of SigLIP similarity
+        (see geometry.py for the full reasoning):
+        - A detection more than settings.max_offscreen_fraction off-frame
+          is skipped entirely, before even cropping/matching it -- its
+          crop would be mostly extrapolated by the perspective warp, not
+          real image content.
+        - Each candidate match is checked against the detected quad's own
+          recovered 3D aspect ratio (single-view metrology from its 4
+          corners) vs. that specific matched product's real catalog image
+          aspect ratio (most cards are the standard ~63:88 portrait ratio,
+          but a few legitimate formats aren't -- e.g. Magic art cards,
+          Pokemon BREAK secondary photos -- so this is checked per-match,
+          not against one fixed constant). A candidate whose shape
+          doesn't match is dropped, regardless of how visually similar
+          the crop looked.
         """
         results = self.segment(image)
         scanned_cards = []
+        img_h, img_w = image.shape[:2]
+        principal_point = (img_w / 2, img_h / 2)
 
         for result in results:
             if not result.boxes:
@@ -223,8 +242,26 @@ class Scanner:
             for track_id, i in zip(track_ids, det_indices):
                 box = result.boxes[i]
                 keypoints = result.keypoints[i].xy[0].cpu().numpy() if result.keypoints is not None else None
+
+                if keypoints is not None:
+                    visible_fraction = geometry.quad_visible_fraction(keypoints, img_w, img_h)
+                    if visible_fraction < 1.0 - settings.max_offscreen_fraction:
+                        continue
+
                 cropped = self.crop(image, box, keypoints)
                 matches = self.match(cropped, top_k=k, verify=verify, margin_pct=margin_pct, min_similarity=min_similarity)
+
+                if keypoints is not None and matches:
+                    ordered_quad = self.order_points(np.asarray(keypoints, dtype=np.float32))
+                    estimated_ratio = geometry.estimate_aspect_ratio(ordered_quad, principal_point)
+                    matches = [
+                        m for m in matches
+                        if geometry.aspect_ratio_matches(
+                            estimated_ratio,
+                            self.matcher.get_expected_aspect_ratio(m[0]),
+                            settings.aspect_ratio_tolerance,
+                        )
+                    ]
 
                 if matches:
                     card = {

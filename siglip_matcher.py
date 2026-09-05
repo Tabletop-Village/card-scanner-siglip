@@ -60,6 +60,7 @@ class SigLIPCardSearch:
         self.hf_repo_id = hf_repo_id or settings.siglip_hf_repo_id
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.database: dict[str, np.ndarray] = {}
+        self.aspect_ratios: dict[str, float] = {}
         self._db_array = None
         self._db_ids = None
         self.update_task = None
@@ -105,6 +106,7 @@ class SigLIPCardSearch:
 
     def load_database(self):
         self.database = {}
+        self.aspect_ratios = {}
         embeddings_file = self._resolve_embeddings_path()
         if embeddings_file is None or not embeddings_file.exists():
             logger.warning("SigLIP vector index not found locally (%s) or on HF Hub (%s)",
@@ -115,7 +117,20 @@ class SigLIPCardSearch:
         ids = data["ids"].tolist()
         embeds = data["embeds"].numpy().astype(np.float16)
         self.database = {str(pid): embeds[i] for i, pid in enumerate(ids)}
+        # Optional -- older embeddings.pt files predate this field. Missing
+        # entirely, or missing for a given id, just means
+        # get_expected_aspect_ratio() returns None for it, and
+        # geometry.aspect_ratio_matches() treats that as "inconclusive,
+        # don't reject" -- see scanner.py's use of it.
+        if "aspect_ratios" in data:
+            ratios = data["aspect_ratios"].tolist()
+            self.aspect_ratios = {str(pid): ratios[i] for i, pid in enumerate(ids)}
         self._rebuild_search_cache()
+
+    def get_expected_aspect_ratio(self, product_id):
+        """The matched product's real catalog image's width/height ratio,
+        or None if unknown (see load_database())."""
+        return self.aspect_ratios.get(str(product_id))
 
     def reload_database(self):
         self.load_database()

@@ -100,6 +100,19 @@ class Settings(BaseSettings):
     # for the incident this fixed.
     min_match_similarity: float = 0.3
 
+    # Geometry-only sanity checks on the detected card quad, independent
+    # of SigLIP similarity -- see geometry.py and Scanner.scan().
+    # A detection more than this fraction off-frame is skipped entirely,
+    # before it's even cropped/matched.
+    max_offscreen_fraction: float = 0.4
+    # Relative tolerance when comparing the quad's recovered 3D aspect
+    # ratio against a matched candidate's real catalog image ratio (both
+    # the ratio and its reciprocal count -- see
+    # geometry.aspect_ratio_matches()). First-pass value: generous enough
+    # to absorb real keypoint/lens-distortion noise on a genuine match,
+    # tight enough to catch a genuinely wrong shape.
+    aspect_ratio_tolerance: float = 0.15
+
     # Torch CUDA device for YOLO on NVIDIA hardware.
     yolo_device: str = "cuda"
 

@@ -29,6 +29,17 @@ this model came from for the full fine-tuning writeup and methodology.
 - **Identification**: SigLIP2 (`google/siglip2-so400m-patch14-384`) vision tower + a merged LoRA
   adapter encodes the cropped card to a single embedding, matched by cosine
   similarity against a precomputed gallery index (`siglip_matcher.py`).
+- **Geometry checks** (`geometry.py`): two sanity checks on the detected quad, independent of
+  SigLIP similarity. A detection more than `CARD_SCANNER_MAX_OFFSCREEN_FRACTION`
+  (default 40%) off-frame is skipped before it's even matched. Each candidate
+  match is checked against the quad's own recovered 3D aspect ratio (single-view
+  metrology: a rectangle's perpendicular edges force its two vanishing points to
+  be orthogonal, which alone solves for the unknown camera focal length) vs. that
+  specific matched product's real catalog image ratio -- most cards are ~63:88
+  portrait, but a few real formats aren't, so this is a per-match lookup rather
+  than one fixed constant. A mismatch (beyond `CARD_SCANNER_ASPECT_RATIO_TOLERANCE`,
+  default 15%) drops that candidate regardless of how visually similar the crop
+  looked to SigLIP.
 - **Database**: Asynchronous SQLite database stores product metadata and real-time market prices (unchanged).
 
 ## The pose model
