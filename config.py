@@ -123,6 +123,14 @@ class Settings(BaseSettings):
     # without losing real ones.
     yolo_confidence_threshold: float = 0.6
 
+    # TEMPORARY diagnostic aid, off by default -- see
+    # api._save_live_detection_debug(). Saves every /live-recognize frame
+    # that produced a non-empty detection (plus its match info) to disk,
+    # so a misidentification seen live can be inspected using the actual
+    # frame the client sent. Not meant to stay enabled long term.
+    debug_save_live_detections: bool = False
+    debug_live_detections_dir: str = "live-detections"
+
     # YOLO pose detector (scanner.py) -- corner-keypoint model, replacing
     # the earlier segmentation-mask + approxPolyDP approach. A local
     # yolo_model_path file, if present, overrides the HF Hub fetch --

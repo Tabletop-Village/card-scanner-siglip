@@ -614,6 +614,25 @@ async def ready():
 LIVE_RECOGNITION_MAX_FPS = 20
 
 
+def _save_live_detection_debug(frame: bytes, results: list[dict]) -> None:
+    """TEMPORARY diagnostic aid (config.debug_save_live_detections, off by
+    default): saves the exact raw frame bytes a /live-recognize client
+    sent whenever it produced a non-empty detection, alongside a JSON
+    sidecar with the full match info (card_id/similarity/box/track_id) --
+    so a misidentification seen live can be inspected afterwards using
+    the *actual* frame the client sent (real resolution/compression/
+    frontend, not a guessed reproduction). Not meant to stay enabled long
+    term -- this is unauthenticated write volume on every hit."""
+    try:
+        debug_dir = Path(settings.debug_live_detections_dir)
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        stamp = f"{time.time_ns()}-{uuid.uuid4().hex[:8]}"
+        (debug_dir / f"{stamp}.jpg").write_bytes(frame)
+        (debug_dir / f"{stamp}.json").write_text(json.dumps(results, indent=2, default=str))
+    except Exception:
+        logger.exception("Failed to save live-detection debug capture")
+
+
 async def _live_frame_results(
     image: np.ndarray,
     tracker,
@@ -713,6 +732,8 @@ async def live_recognize(
                 continue
             try:
                 results = await _live_frame_results(image, tracker, top_n=top_n, margin_pct=margin_pct, min_similarity=min_similarity)
+                if results and settings.debug_save_live_detections:
+                    _save_live_detection_debug(frame, results)
             except asyncio.TimeoutError:
                 await websocket.send_json({"type": "error", "error": "recognition_timed_out"})
                 continue

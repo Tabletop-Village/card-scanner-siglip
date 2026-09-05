@@ -22,6 +22,7 @@ models/*.pt
 # never belongs in git history.
 scan-archive/
 certs/
+live-detections/
 
 # Temp files
 groups_test.json
