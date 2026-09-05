@@ -87,7 +87,8 @@ class Scanner:
         Returns a list of results containing boxes/keypoints (4 corners
         per detected card).
         """
-        results = self.model(image, device=self.device, verbose=False)
+        results = self.model(image, device=self.device, verbose=False,
+                              conf=settings.yolo_confidence_threshold)
         return results
 
     def order_points(self, pts):

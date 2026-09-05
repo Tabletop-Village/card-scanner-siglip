@@ -116,6 +116,13 @@ class Settings(BaseSettings):
     # Torch CUDA device for YOLO on NVIDIA hardware.
     yolo_device: str = "cuda"
 
+    # Minimum detection confidence for the pose model. ultralytics'
+    # own default (0.25) is quite permissive -- genuine cards in testing
+    # scored 0.94-0.98, so this has a lot of headroom to cut down false
+    # detections on non-card objects (a laptop screen, a water bottle)
+    # without losing real ones.
+    yolo_confidence_threshold: float = 0.6
+
     # YOLO pose detector (scanner.py) -- corner-keypoint model, replacing
     # the earlier segmentation-mask + approxPolyDP approach. A local
     # yolo_model_path file, if present, overrides the HF Hub fetch --

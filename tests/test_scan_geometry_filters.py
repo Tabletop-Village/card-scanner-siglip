@@ -5,6 +5,7 @@ quad's own recovered shape are dropped after matching."""
 import numpy as np
 import pytest
 
+from config import settings
 from scanner import Scanner
 
 
@@ -54,7 +55,7 @@ class _FakeMatcher:
 
 def _make_scanner(quad, box_xyxy, expected_ratio, img_shape=(600, 800, 3)):
     scanner = object.__new__(Scanner)
-    scanner.model = lambda image, device, verbose: [_FakeResult(box_xyxy, quad)]
+    scanner.model = lambda image, device, verbose, conf: [_FakeResult(box_xyxy, quad)]
     scanner.device = "cpu"
     scanner.matcher = _FakeMatcher(expected_ratio)
     image = np.zeros(img_shape, dtype=np.uint8)
@@ -109,3 +110,24 @@ def test_scan_keeps_match_when_expected_ratio_is_unknown():
     cards = scanner.scan(image, k=1)
 
     assert len(cards) == 1
+
+
+def test_segment_passes_the_configured_confidence_threshold():
+    """Regression test: segment() must actually apply
+    config.yolo_confidence_threshold, not rely on ultralytics' own
+    permissive 0.25 default -- see config.py for why (real cards scored
+    0.94-0.98 in testing; false detections on non-card objects like a
+    laptop screen or water bottle need a higher bar to get filtered)."""
+    quad = [(300, 200), (500, 200), (500, 400), (300, 400)]
+    scanner, image = _make_scanner(quad, box_xyxy=[300, 200, 500, 400], expected_ratio=None)
+
+    captured = {}
+
+    def fake_model(image, device, verbose, conf):
+        captured["conf"] = conf
+        return [_FakeResult([300, 200, 500, 400], quad)]
+
+    scanner.model = fake_model
+    scanner.scan(image, k=1)
+
+    assert captured["conf"] == settings.yolo_confidence_threshold
