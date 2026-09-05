@@ -81,7 +81,7 @@ See `.env.example` for all available options.
 - `CARD_SCANNER_YOLO_HF_REPO_ID` / `CARD_SCANNER_YOLO_HF_FILENAME` - HF Hub repo/file for the pose detector (default: `jackttv/card-scanner-yolo-pose`, `best.pt`)
 - `CARD_SCANNER_YOLO_MODEL_PATH` - Local file that overrides the HF Hub if present (default: `models/pose_best.pt`)
 - `CARD_SCANNER_YOLO_CONFIDENCE_THRESHOLD` - Minimum pose-detection confidence (default: 0.6, raised from ultralytics' permissive 0.25 default -- genuine cards scored 0.94-0.98 in testing, so this cuts down false detections on non-card objects without losing real ones)
-- `CARD_SCANNER_MAX_OFFSCREEN_FRACTION` - Skip a detection more than this fraction off-frame, before matching it at all (default: 0.4)
+- `CARD_SCANNER_MAX_OFFSCREEN_FRACTION` - Skip a detection more than this fraction off-frame, before matching it at all (default: 0.2)
 - `CARD_SCANNER_ASPECT_RATIO_TOLERANCE` - Relative tolerance when checking a match's expected image aspect ratio against the detected quad's recovered 3D shape (default: 0.15). Not exposed as a per-request API param like `margin_pct`/`min_similarity` -- these are pipeline correctness gates, not per-request tuning knobs
 
 ## Key Files

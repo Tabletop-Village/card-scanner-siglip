@@ -104,7 +104,7 @@ class Settings(BaseSettings):
     # of SigLIP similarity -- see geometry.py and Scanner.scan().
     # A detection more than this fraction off-frame is skipped entirely,
     # before it's even cropped/matched.
-    max_offscreen_fraction: float = 0.4
+    max_offscreen_fraction: float = 0.2
     # Relative tolerance when comparing the quad's recovered 3D aspect
     # ratio against a matched candidate's real catalog image ratio (both
     # the ratio and its reciprocal count -- see

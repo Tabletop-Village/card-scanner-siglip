@@ -31,7 +31,7 @@ this model came from for the full fine-tuning writeup and methodology.
   similarity against a precomputed gallery index (`siglip_matcher.py`).
 - **Geometry checks** (`geometry.py`): two sanity checks on the detected quad, independent of
   SigLIP similarity. A detection more than `CARD_SCANNER_MAX_OFFSCREEN_FRACTION`
-  (default 40%) off-frame is skipped before it's even matched. Each candidate
+  (default 20%) off-frame is skipped before it's even matched. Each candidate
   match is checked against the quad's own recovered 3D aspect ratio (single-view
   metrology: a rectangle's perpendicular edges force its two vanishing points to
   be orthogonal, which alone solves for the unknown camera focal length) vs. that
