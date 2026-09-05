@@ -117,6 +117,7 @@ Upload an image containing one or more cards; YOLO detects and perspective-corre
 | `image`      | File (image) | Yes      | The image file to scan                   |
 | `top_n`      | Integer      | No       | Number of top matches per card. If omitted, returns every match within `margin_pct` percentage points of the best match instead of a fixed count (see below) |
 | `margin_pct` | Float        | No       | Margin used when `top_n` is omitted (default: 2.0). Ignored if `top_n` is given |
+| `min_similarity` | Float    | No       | Overrides the default minimum-similarity floor (default: 0.3) -- any match below this cosine similarity is dropped entirely (see "Minimum-similarity floor" below) |
 | `verify`     | Boolean      | No       | Accepted for compatibility with the old RANSAC re-rank flag; always a no-op now (`inliers` is always `0`) -- see [Geometric verification is gone](#geometric-verification-is-gone) |
 
 ```bash
@@ -135,6 +136,21 @@ card with two visually-near-identical reprints might return both at
 ```bash
 curl -X POST "http://localhost:8000/scan" -F "image=@your_card_photo.jpg"
 curl -X POST "http://localhost:8000/scan" -F "image=@your_card_photo.jpg" -F "margin_pct=5"
+```
+
+**Minimum-similarity floor:** Any match below `min_similarity` (cosine
+similarity, default 0.3) is dropped entirely, regardless of `top_n`/margin
+mode -- a detected region that doesn't resemble anything real in the
+gallery reports no match instead of a false-confident "closest available"
+one. This fixed a real incident where a handful of gallery images turned
+out to be a generic "Image Coming Soon" placeholder graphic (TCGplayer
+served a 200 OK containing it instead of a 403 for a few photo-less
+products), which had been acting as a false attractor -- completely
+unrelated photos (packaging, electronics) were all matching to it at
+50-65% similarity. Raise it for stricter matching:
+
+```bash
+curl -X POST "http://localhost:8000/scan" -F "image=@your_card_photo.jpg" -F "min_similarity=0.6"
 ```
 
 **Response:**
@@ -195,6 +211,7 @@ Identify a pre-cropped card image directly (skips YOLO detection) for faster pro
 | `image`      | File (image) | Yes      | The pre-cropped card image               |
 | `top_n`      | Integer      | No       | Number of top matches to return. If omitted, returns every match within `margin_pct` percentage points of the best match instead of a fixed count -- see `/scan`'s margin mode above |
 | `margin_pct` | Float        | No       | Margin used when `top_n` is omitted (default: 2.0). Ignored if `top_n` is given |
+| `min_similarity` | Float    | No       | Overrides the default minimum-similarity floor (default: 0.3) -- see `/scan`'s minimum-similarity floor above |
 | `verify`     | Boolean      | No       | Same no-op compatibility flag as `/scan`  |
 
 ```bash
@@ -212,13 +229,14 @@ across frames as long as they stay in view -- there's no server-side score
 smoothing or aggregation. If you want a "hold steady for N frames before
 committing" UX, implement it client-side by grouping results on `track_id`.
 
-Same `top_n`/`margin_pct` as `/scan`, but set once as query params on the
-connection URL (fixed for the connection's lifetime, alongside its
-tracker) rather than per-request:
+Same `top_n`/`margin_pct`/`min_similarity` as `/scan`, but set once as
+query params on the connection URL (fixed for the connection's lifetime,
+alongside its tracker) rather than per-request:
 
 ```
 wss://host/live-recognize?top_n=5
 wss://host/live-recognize?margin_pct=3
+wss://host/live-recognize?min_similarity=0.5
 ```
 
 Send binary JPEG frames (max 20 FPS; faster sends get an `error` reply, not

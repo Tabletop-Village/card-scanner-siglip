@@ -34,6 +34,7 @@ Uploads an image file, uses a YOLO pose model to detect each card and its 4 corn
 | `image`      | File (image) | Yes      | The image file to scan                   |
 | `top_n`      | Integer      | No       | Number of top matches per card. If omitted, returns every match within `margin_pct` percentage points of the best match instead of a fixed count (see below) |
 | `margin_pct` | Float        | No       | Margin used when `top_n` is omitted (default: 2.0). Ignored if `top_n` is given |
+| `min_similarity` | Float    | No       | Overrides the default minimum-similarity floor (default: 0.3) -- any match below this cosine similarity is dropped entirely (see "Minimum-similarity floor" below) |
 
 **Example:**
 ```bash
@@ -52,6 +53,18 @@ card with two visually-near-identical reprints might return both at
 ```bash
 curl -X POST "http://localhost:8000/scan" -F "image=@your_card_photo.jpg"
 curl -X POST "http://localhost:8000/scan" -F "image=@your_card_photo.jpg" -F "margin_pct=5"
+```
+
+**Minimum-similarity floor:** Any match below `min_similarity` (cosine
+similarity, default 0.3) is dropped entirely, regardless of `top_n`/margin
+mode -- a detected region that doesn't resemble anything real in the
+gallery reports no match instead of a false-confident "closest available"
+one. Without this floor, a YOLO false-positive (detecting a non-card
+object) or a card genuinely absent from the gallery would always return
+some plausible-looking top-1 match. Raise it for stricter matching:
+
+```bash
+curl -X POST "http://localhost:8000/scan" -F "image=@your_card_photo.jpg" -F "min_similarity=0.6"
 ```
 
 **Response:**
@@ -122,6 +135,7 @@ Resizes the input image to standard card dimensions and performs SigLIP2 LoRA em
 | `image`      | File (image) | Yes      | The pre-cropped card image               |
 | `top_n`      | Integer      | No       | Number of top matches to return. If omitted, returns every match within `margin_pct` percentage points of the best match instead of a fixed count -- see `/scan`'s margin mode above |
 | `margin_pct` | Float        | No       | Margin used when `top_n` is omitted (default: 2.0). Ignored if `top_n` is given |
+| `min_similarity` | Float    | No       | Overrides the default minimum-similarity floor (default: 0.3) -- see `/scan`'s minimum-similarity floor above |
 
 **Example:**
 ```bash
@@ -149,6 +163,7 @@ committing" UX, implement it client-side by grouping results on `track_id`.
 |--------------|---------|----------|-------------------------------------------|
 | `top_n`      | Integer | No       | Number of top matches per detected card. If omitted, returns every match within `margin_pct` percentage points of that card's best match instead of a fixed count -- same semantics as `/scan` |
 | `margin_pct` | Float   | No       | Margin used when `top_n` is omitted (default: 2.0). Ignored if `top_n` is given |
+| `min_similarity` | Float | No     | Overrides the default minimum-similarity floor (default: 0.3) -- same semantics as `/scan` |
 
 Unlike `top_n`/`margin_pct` on `/scan` (per-request), these apply for the
 whole connection -- set once alongside the tracker when the socket opens,

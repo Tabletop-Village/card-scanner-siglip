@@ -147,18 +147,20 @@ class Scanner:
         cropped = image[y1:y2, x1:x2]
         return cropped
 
-    def match(self, cropped_image, top_k=1, verify=False, margin_pct=None):
+    def match(self, cropped_image, top_k=1, verify=False, margin_pct=None, min_similarity=None):
         """
         Match the cropped card image using the SigLIP2 LoRA embedding matcher.
         verify=True has no geometric-verification equivalent for a global
         embedding (see siglip_matcher.py) -- inliers is always 0, kept for
         response-shape compatibility.
         top_k=None switches to margin mode -- see siglip_matcher.search().
+        min_similarity overrides config.min_match_similarity -- matches
+        below it are dropped entirely (see siglip_matcher.search()).
         Returns a list of (card_id, similarity) or (card_id, similarity, inliers) tuples.
         """
         if verify:
-            return self.matcher.search_verified(cropped_image, top_k=top_k, margin_pct=margin_pct)
-        results = self.matcher.search(cropped_image, top_k=top_k, margin_pct=margin_pct)
+            return self.matcher.search_verified(cropped_image, top_k=top_k, margin_pct=margin_pct, min_similarity=min_similarity)
+        results = self.matcher.search(cropped_image, top_k=top_k, margin_pct=margin_pct, min_similarity=min_similarity)
         return results
 
     @staticmethod
@@ -170,7 +172,7 @@ class Scanner:
             for m in matches
         ]
 
-    def identify_card(self, image, k=1, verify=False, margin_pct=None):
+    def identify_card(self, image, k=1, verify=False, margin_pct=None, min_similarity=None):
         """
         Identify a single pre-cropped card image.
         Resizes the image to the standard card size used in the pipeline before matching.
@@ -182,14 +184,14 @@ class Scanner:
         card_height = int(card_width * (88 / 63))
 
         resized = cv2.resize(image, (card_width, card_height))
-        matches = self.match(resized, top_k=k, verify=verify, margin_pct=margin_pct)
+        matches = self.match(resized, top_k=k, verify=verify, margin_pct=margin_pct, min_similarity=min_similarity)
 
         return {
             'matches': self._match_dicts(matches),
             'box': [0, 0, image.shape[1], image.shape[0]] # Full image box
         }
 
-    def scan(self, image, k=1, verify=False, tracker=None, margin_pct=None):
+    def scan(self, image, k=1, verify=False, tracker=None, margin_pct=None, min_similarity=None):
         """
         Full scan pipeline: segment, crop (with dewarp), and match.
         Returns a list of dictionaries, each containing the bounding box and
@@ -222,7 +224,7 @@ class Scanner:
                 box = result.boxes[i]
                 keypoints = result.keypoints[i].xy[0].cpu().numpy() if result.keypoints is not None else None
                 cropped = self.crop(image, box, keypoints)
-                matches = self.match(cropped, top_k=k, verify=verify, margin_pct=margin_pct)
+                matches = self.match(cropped, top_k=k, verify=verify, margin_pct=margin_pct, min_similarity=min_similarity)
 
                 if matches:
                     card = {

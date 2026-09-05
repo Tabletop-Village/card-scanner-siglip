@@ -619,6 +619,7 @@ async def _live_frame_results(
     tracker,
     top_n: Optional[int] = None,
     margin_pct: Optional[float] = None,
+    min_similarity: Optional[float] = None,
 ) -> list[dict]:
     """Recognize one camera frame and enrich its candidate IDs from the DB.
 
@@ -629,9 +630,12 @@ async def _live_frame_results(
     frontends can implement whatever temporal aggregation they want,
     keyed by track_id.
 
-    `top_n`/`margin_pct` behave exactly like /scan's: top_n fixes the
-    match count per detected card; omitting it switches to margin mode
-    (every match within margin_pct points of that card's best score).
+    `top_n`/`margin_pct`/`min_similarity` behave exactly like /scan's:
+    top_n fixes the match count per detected card; omitting it switches to
+    margin mode (every match within margin_pct points of that card's best
+    score); min_similarity drops matches below that cosine similarity
+    entirely (config.min_match_similarity default) -- see
+    siglip_matcher.SigLIPCardSearch.search().
     """
     scanner = getattr(app.state, "scanner", None)
     db = getattr(app.state, "db", None)
@@ -640,7 +644,7 @@ async def _live_frame_results(
 
     detected_cards = await asyncio.wait_for(
         asyncio.to_thread(scanner.scan, image, k=top_n, verify=False,
-                           tracker=tracker, margin_pct=margin_pct),
+                           tracker=tracker, margin_pct=margin_pct, min_similarity=min_similarity),
         timeout=settings.yolo_timeout,
     )
     columns = db.return_columns()
@@ -665,6 +669,7 @@ async def live_recognize(
     websocket: WebSocket,
     top_n: Optional[int] = None,
     margin_pct: Optional[float] = None,
+    min_similarity: Optional[float] = None,
 ):
     """Recognize JPEG camera frames, enforcing 20 FPS per connection.
 
@@ -673,9 +678,10 @@ async def live_recognize(
     that connection without leaking into any other connection's tracks.
     There is no server-side score smoothing -- see `_live_frame_results`.
 
-    `top_n`/`margin_pct` are query params on the connection URL (e.g.
-    `/live-recognize?top_n=5` or `/live-recognize?margin_pct=3`), fixed
-    for the lifetime of the connection just like its tracker -- same
+    `top_n`/`margin_pct`/`min_similarity` are query params on the
+    connection URL (e.g. `/live-recognize?top_n=5`,
+    `/live-recognize?margin_pct=3`, `/live-recognize?min_similarity=0.5`),
+    fixed for the lifetime of the connection just like its tracker -- same
     semantics as /scan's (omitting top_n switches to margin mode).
     """
     await websocket.accept()
@@ -706,7 +712,7 @@ async def live_recognize(
                 await websocket.send_json({"type": "error", "error": "invalid_jpeg"})
                 continue
             try:
-                results = await _live_frame_results(image, tracker, top_n=top_n, margin_pct=margin_pct)
+                results = await _live_frame_results(image, tracker, top_n=top_n, margin_pct=margin_pct, min_similarity=min_similarity)
             except asyncio.TimeoutError:
                 await websocket.send_json({"type": "error", "error": "recognition_timed_out"})
                 continue
@@ -738,6 +744,7 @@ async def scan(
     image: UploadFile = fastapi.File(...),
     top_n: Optional[int] = None,
     margin_pct: Optional[float] = None,
+    min_similarity: Optional[float] = None,
     verify: bool = False,
     _api_key: Optional[str] = Depends(verify_api_key),
 ):
@@ -752,6 +759,11 @@ async def scan(
             down to one) -- see config.match_margin_pct.
         margin_pct: Overrides the default margin (config.match_margin_pct)
             used when top_n is omitted. Ignored if top_n is given.
+        min_similarity: Overrides the default minimum-similarity floor
+            (config.min_match_similarity) -- any match below this cosine
+            similarity is dropped entirely, so a detected region that
+            doesn't resemble anything real in the gallery reports no match
+            instead of a false-confident "closest available" one.
         verify: Geometrically verify matches (RANSAC re-rank; adds inlier counts)
     Returns:
         JSON object containing all data for all cards detected
@@ -778,7 +790,7 @@ async def scan(
 
         try:
             detected_cards = await asyncio.wait_for(
-                asyncio.to_thread(scanner.scan, img, k=top_n, verify=verify, margin_pct=margin_pct),
+                asyncio.to_thread(scanner.scan, img, k=top_n, verify=verify, margin_pct=margin_pct, min_similarity=min_similarity),
                 timeout=settings.yolo_timeout,
             )
         except asyncio.TimeoutError:
@@ -841,6 +853,7 @@ async def identify(
     image: UploadFile = fastapi.File(...),
     top_n: Optional[int] = None,
     margin_pct: Optional[float] = None,
+    min_similarity: Optional[float] = None,
     verify: bool = False,
     _api_key: Optional[str] = Depends(verify_api_key),
 ):
@@ -854,6 +867,9 @@ async def identify(
             config.match_margin_pct.
         margin_pct: Overrides the default margin (config.match_margin_pct)
             used when top_n is omitted. Ignored if top_n is given.
+        min_similarity: Overrides the default minimum-similarity floor
+            (config.min_match_similarity) -- any match below this cosine
+            similarity is dropped entirely. See /scan's min_similarity.
         verify: Geometrically verify matches (RANSAC re-rank; adds inlier counts)
     Returns:
         JSON object containing data for the identified card matches
@@ -877,7 +893,7 @@ async def identify(
         # Use identify_card (lighter than full scan) with timeout
         try:
             card_result = await asyncio.wait_for(
-                asyncio.to_thread(scanner.identify_card, img, k=top_n, verify=verify, margin_pct=margin_pct),
+                asyncio.to_thread(scanner.identify_card, img, k=top_n, verify=verify, margin_pct=margin_pct, min_similarity=min_similarity),
                 timeout=settings.yolo_timeout,
             )
         except asyncio.TimeoutError:

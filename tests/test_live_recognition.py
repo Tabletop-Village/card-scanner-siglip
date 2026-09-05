@@ -14,15 +14,15 @@ def _jpeg_bytes() -> bytes:
 
 class _Scanner:
     def __init__(self):
-        self.scan_calls = []  # list of (k, margin_pct) per scan() call
+        self.scan_calls = []  # list of (k, margin_pct, min_similarity) per scan() call
 
     def new_tracker(self):
         return object()  # opaque; just needs to round-trip through scan()
 
-    def scan(self, image, k=None, verify=False, tracker=None, margin_pct=None):
+    def scan(self, image, k=None, verify=False, tracker=None, margin_pct=None, min_similarity=None):
         assert image.shape == (8, 8, 3)
         assert tracker is not None
-        self.scan_calls.append((k, margin_pct))
+        self.scan_calls.append((k, margin_pct, min_similarity))
         return [
             {"box": [0, 0, 8, 8], "track_id": 1, "matches": [{"card_id": 42, "similarity": 0.8}]},
             {"box": [4, 4, 8, 8], "track_id": 2, "matches": [{"card_id": 99, "similarity": 0.5}]},
@@ -96,7 +96,7 @@ def test_live_recognize_websocket_defaults_to_margin_mode():
     finally:
         client.close()
 
-    assert scanner.scan_calls == [(None, None)]
+    assert scanner.scan_calls == [(None, None, None)]
 
 
 def test_live_recognize_websocket_honors_top_n_query_param():
@@ -111,7 +111,7 @@ def test_live_recognize_websocket_honors_top_n_query_param():
     finally:
         client.close()
 
-    assert scanner.scan_calls == [(5, None)]
+    assert scanner.scan_calls == [(5, None, None)]
 
 
 def test_live_recognize_websocket_honors_margin_pct_query_param():
@@ -126,7 +126,22 @@ def test_live_recognize_websocket_honors_margin_pct_query_param():
     finally:
         client.close()
 
-    assert scanner.scan_calls == [(None, 3.5)]
+    assert scanner.scan_calls == [(None, 3.5, None)]
+
+
+def test_live_recognize_websocket_honors_min_similarity_query_param():
+    scanner = _Scanner()
+    app.state.scanner = scanner
+    app.state.db = _Database()
+    client = TestClient(app)
+    try:
+        with client.websocket_connect("/live-recognize?min_similarity=0.5") as websocket:
+            websocket.send_bytes(_jpeg_bytes())
+            websocket.receive_json()
+    finally:
+        client.close()
+
+    assert scanner.scan_calls == [(None, None, 0.5)]
 
 
 def test_live_recognize_websocket_rejects_frames_above_twenty_per_second():

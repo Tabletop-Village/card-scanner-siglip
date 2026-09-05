@@ -150,7 +150,7 @@ class SigLIPCardSearch:
             feats = F.normalize(feats.float(), dim=-1)
         return feats.squeeze(0)
 
-    def search(self, query_image, top_k=5, margin_pct=None):
+    def search(self, query_image, top_k=5, margin_pct=None, min_similarity=None):
         """top_k=None switches to margin mode: instead of a fixed count,
         return every gallery match within `margin_pct` percentage points
         (defaults to settings.match_margin_pct) of the single best match's
@@ -159,11 +159,26 @@ class SigLIPCardSearch:
         Searches a settings.match_margin_pool_size-sized candidate pool
         first rather than the full gallery; real near-duplicates cluster
         within a couple of points of the top score, so this comfortably
-        covers them without an expensive full sort."""
+        covers them without an expensive full sort.
+
+        Regardless of mode, any match below min_similarity (defaults to
+        settings.min_match_similarity) is dropped entirely -- a detected
+        region that doesn't resemble *anything* in the gallery should
+        report no match, not the closest available card with false
+        confidence. Without this floor, a non-card YOLO false-positive (or
+        a genuine card the gallery has no real answer for) always
+        returned a plausible-looking top-1 match; see the incident this
+        fixed, where a handful of gallery images turned out to be a
+        generic "Image Coming Soon" placeholder graphic (TCGplayer served
+        a 200 OK containing it instead of a 403 for a few photo-less
+        products) that acted as a false attractor for completely
+        unrelated crops (a glue gun box, a PSU fan, ...) at 50-65%
+        similarity."""
         if self._db_array is None:
             return []
         query = self.encode(query_image).to(torch.float16)
         scores = self._db_array @ query
+        floor = settings.min_match_similarity if min_similarity is None else min_similarity
 
         if top_k is None:
             margin = settings.match_margin_pct if margin_pct is None else margin_pct
@@ -171,7 +186,7 @@ class SigLIPCardSearch:
             if not pool:
                 return []
             values, indices = torch.topk(scores, pool)
-            threshold = float(values[0]) - margin / 100.0
+            threshold = max(float(values[0]) - margin / 100.0, floor)
             return [(str(self._db_ids[int(index)]), float(value))
                     for value, index in zip(values.cpu(), indices.cpu())
                     if float(value) >= threshold]
@@ -181,15 +196,16 @@ class SigLIPCardSearch:
             return []
         values, indices = torch.topk(scores, count)
         return [(str(self._db_ids[int(index)]), float(value))
-                for value, index in zip(values.cpu(), indices.cpu())]
+                for value, index in zip(values.cpu(), indices.cpu())
+                if float(value) >= floor]
 
-    def search_verified(self, query_image, top_k=5, rerank_k=None, margin_pct=None):
+    def search_verified(self, query_image, top_k=5, rerank_k=None, margin_pct=None, min_similarity=None):
         """API-compatible fallback -- a global embedding has no keypoints to
         run RANSAC geometric verification against, so this matches
         VLADCardSearch.search_verified()'s own current fallback behavior
         for the CudaSift-tagged deployment (inliers=0), not a regression."""
         return [(card_id, similarity, 0)
-                for card_id, similarity in self.search(query_image, top_k, margin_pct=margin_pct)]
+                for card_id, similarity in self.search(query_image, top_k, margin_pct=margin_pct, min_similarity=min_similarity)]
 
     def compare_images(self, image1, image2):
         a = self.encode(image1)

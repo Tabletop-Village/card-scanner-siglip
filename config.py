@@ -92,6 +92,14 @@ class Settings(BaseSettings):
     match_margin_pct: float = 2.0
     match_margin_pool_size: int = 30
 
+    # Below this cosine similarity, a match is dropped entirely rather
+    # than returned -- a detected region that doesn't resemble anything
+    # real in the gallery should report no match, not a false-confident
+    # "closest available" one. Overridable per-request (see /scan's
+    # min_similarity param); see siglip_matcher.SigLIPCardSearch.search()
+    # for the incident this fixed.
+    min_match_similarity: float = 0.3
+
     # Torch CUDA device for YOLO on NVIDIA hardware.
     yolo_device: str = "cuda"
 
