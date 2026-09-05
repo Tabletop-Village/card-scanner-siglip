@@ -1,0 +1,15 @@
+[Unit]
+Description=Tabletop Village Card Scanner (SigLIP)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/user/projects/card-scanner-siglip
+ExecStart=/home/user/projects/card-scanner-siglip/.venv/bin/python -m uvicorn api:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

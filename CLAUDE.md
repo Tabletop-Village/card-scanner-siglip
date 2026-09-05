@@ -91,6 +91,7 @@ See `.env.example` for all available options.
 
 ## Production Features
 
+- **Persistence**: `deploy/card-scanner-siglip.service` -- systemd user unit (`Restart=on-failure`), see `deploy/README.md` for install steps (needs `loginctl enable-linger` for true reboot survival, not just logout/login)
 - **Authentication**: Optional API key auth via `X-API-Key` header
 - **Rate Limiting**: Configurable per-endpoint limits (slowapi)
 - **Metrics**: Prometheus metrics at `/metrics`
