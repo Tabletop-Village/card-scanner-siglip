@@ -328,7 +328,7 @@ async def lifespan(app: fastapi.FastAPI):
 app = fastapi.FastAPI(
     lifespan=lifespan,
     title="Card Scanner API",
-    description="Trading card scanner using YOLOv11 segmentation + SigLIP2 LoRA embedding search",
+    description="Trading card scanner using a YOLO pose detector + SigLIP2 LoRA embedding search",
     version="1.0.0",
 )
 

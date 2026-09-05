@@ -25,7 +25,7 @@ Currently, the API does not require authentication.
 Scan an image to detect and identify all trading cards present in the image.
 
 **Description:**  
-Uploads an image file, uses YOLO for card detection and segmentation, performs perspective correction, and returns identification results using SigLIP2 LoRA embedding matching.
+Uploads an image file, uses a YOLO pose model to detect each card and its 4 corners, perspective-warps it flat, and returns identification results using SigLIP2 LoRA embedding matching.
 
 **Request:**
 

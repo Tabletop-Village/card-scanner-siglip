@@ -1,11 +1,19 @@
 """
 Handles the scanner for the card scanner.
-Uses ultralytics YOLO to segment the card from the image.
-Uses OpenCV to crop the image using the segmentation mask.
+Uses an ultralytics YOLO pose model to detect each card's 4 corners
+directly (see MODEL_HISTORY.md / commit history for the earlier
+segmentation-mask + approxPolyDP approach this replaced -- the pose
+model's direct keypoint regression stays accurate at steep rotation
+angles where mask-polygon approximation degraded badly).
+Uses OpenCV to perspective-warp the card to a flat, upright crop from
+those 4 corners.
 Checks the card against the SigLIP2 LoRA embedding matcher (siglip_matcher.py)
 to get the product ID. Returns the product ID.
 """
 
+from pathlib import Path
+
+from huggingface_hub import hf_hub_download
 from ultralytics import YOLO
 from ultralytics.utils import YAML, IterableSimpleNamespace
 from ultralytics.utils.checks import check_yaml
@@ -18,17 +26,30 @@ from config import settings
 _TRACKER_MAP = {"bytetrack": BYTETracker, "botsort": BOTSORT}
 
 class Scanner:
-    def __init__(self, model_path='models/best(2).pt', vectors_path=None, lora_path=None):
+    def __init__(self, model_path=None, vectors_path=None, lora_path=None):
         """
-        Initialize the Scanner with YOLO model and SigLIP2 LoRA matcher.
-        (Was CudaSift RootSIFT+VLAD via vlad_matcher.VLADCardSearch -- see
-        siglip_matcher.py's docstring for why/how this was replaced. That
-        module is left in place, unimported, in case of rollback.)
+        Initialize the Scanner with the YOLO pose model and SigLIP2 LoRA
+        matcher. (Was CudaSift RootSIFT+VLAD via vlad_matcher.VLADCardSearch
+        -- see siglip_matcher.py's docstring for why/how that was replaced.
+        That module is left in place, unimported, in case of rollback.)
+
+        model_path: explicit local .pt path, overriding the usual
+        local-file-then-HF-Hub resolution (see _resolve_model_path()).
         """
-        self.model = YOLO(model_path)
+        self.model = YOLO(model_path or self._resolve_model_path())
         self.device = settings.yolo_device
         self.model.to(self.device)
         self.matcher = siglip_matcher.SigLIPCardSearch(vectors_path=vectors_path, lora_path=lora_path)
+
+    @staticmethod
+    def _resolve_model_path():
+        """A local models/ file, if present (offline dev / not-yet-uploaded
+        checkpoint), takes priority over the HF Hub -- same pattern as
+        siglip_matcher.py's adapter/embeddings resolution."""
+        local_file = Path(settings.yolo_model_path)
+        if local_file.exists():
+            return str(local_file)
+        return hf_hub_download(settings.yolo_hf_repo_id, settings.yolo_hf_filename)
 
     @staticmethod
     def new_tracker(tracker_yaml='bytetrack.yaml', frame_rate=30):
@@ -51,8 +72,9 @@ class Scanner:
 
     def segment(self, image):
         """
-        Use YOLO to segment cards from the image.
-        Returns a list of results containing boxes/masks.
+        Run the YOLO pose model over the image.
+        Returns a list of results containing boxes/keypoints (4 corners
+        per detected card).
         """
         results = self.model(image, device=self.device, verbose=False)
         return results
@@ -70,20 +92,14 @@ class Scanner:
         rect[3] = pts[np.argmax(diff)]
         return rect
 
-    def crop(self, image, box, mask=None):
+    def crop(self, image, box, keypoints=None):
         """
-        Crop and dewarp the image based on the bounding box and optional mask.
-        If mask is provided, performs perspective transformation.
+        Crop and dewarp the image based on the bounding box and the pose
+        model's 4 corner keypoints, if provided.
         """
-        if mask is not None:
-            # Extract polygon from mask and ensure contiguous float32 array for OpenCV
-            polygon = np.ascontiguousarray(mask.xy[0], dtype=np.float32)
-            # Approximate the polygon to 4 points
-            peri = cv2.arcLength(polygon, True)
-            approx = cv2.approxPolyDP(polygon, 0.02 * peri, True)
-            
-            if len(approx) == 4:
-                pts = approx.reshape(4, 2)
+        if keypoints is not None:
+            pts = np.asarray(keypoints, dtype=np.float32)
+            if pts.shape == (4, 2):
                 rect = self.order_points(pts)
                 (tl, tr, br, bl) = rect
 
@@ -91,16 +107,16 @@ class Scanner:
                 # We'll use a fixed width of 400px for consistency
                 card_width = 400
                 card_height = int(card_width * (88 / 63))
-                
+
                 # Check if the detected card is horizontal or vertical
                 widthA = np.sqrt(((br[0] - bl[0]) ** 2) + ((br[1] - bl[1]) ** 2))
                 widthB = np.sqrt(((tr[0] - tl[0]) ** 2) + ((tr[1] - tl[1]) ** 2))
                 heightA = np.sqrt(((tr[0] - br[0]) ** 2) + ((tr[1] - br[1]) ** 2))
                 heightB = np.sqrt(((tl[0] - bl[0]) ** 2) + ((tl[1] - bl[1]) ** 2))
-                
+
                 orig_width = max(int(widthA), int(widthB))
                 orig_height = max(int(heightA), int(heightB))
-                
+
                 if orig_width > orig_height:
                     # Detected horizontal, rotate mapping to make it vertical
                     # Map: bl->tl, tl->tr, tr->br, br->bl
@@ -116,7 +132,7 @@ class Scanner:
                 warped = cv2.warpPerspective(image, M, (card_width, card_height))
                 return warped
 
-        # Fallback to simple crop
+        # Fallback to simple crop (e.g. keypoints unexpectedly missing)
         x1, y1, x2, y2 = map(int, box.xyxy[0])
         cropped = image[y1:y2, x1:x2]
         return cropped
@@ -194,8 +210,8 @@ class Scanner:
 
             for track_id, i in zip(track_ids, det_indices):
                 box = result.boxes[i]
-                mask = result.masks[i] if result.masks is not None else None
-                cropped = self.crop(image, box, mask)
+                keypoints = result.keypoints[i].xy[0].cpu().numpy() if result.keypoints is not None else None
+                cropped = self.crop(image, box, keypoints)
                 matches = self.match(cropped, top_k=k, verify=verify, margin_pct=margin_pct)
 
                 if matches:

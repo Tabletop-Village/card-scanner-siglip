@@ -6,12 +6,17 @@ __pycache__/
 
 # Data and models -- deployed/generated artifacts, not committed
 database.db
+database.db.bak-*
 database.db.partial-*
 test_database.db
 categories/
 scans/
 test_images/
 siglip_vectors/
+models/*.pt
+
+# Local runtime config -- see .env.example for the tracked template
+.env
 
 # Private: user-submitted scan uploads (0600/0700 perms) and TLS keys --
 # never belongs in git history.

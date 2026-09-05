@@ -95,6 +95,14 @@ class Settings(BaseSettings):
     # Torch CUDA device for YOLO on NVIDIA hardware.
     yolo_device: str = "cuda"
 
+    # YOLO pose detector (scanner.py) -- corner-keypoint model, replacing
+    # the earlier segmentation-mask + approxPolyDP approach. A local
+    # yolo_model_path file, if present, overrides the HF Hub fetch --
+    # same local-override pattern as siglip_hf_repo_id/siglip_vectors_path.
+    yolo_model_path: str = "models/pose_best.pt"
+    yolo_hf_repo_id: str = "jackttv/card-scanner-yolo-pose"
+    yolo_hf_filename: str = "best.pt"
+
     # Timeouts
     http_timeout: float = 30.0
     yolo_timeout: float = 30.0

@@ -3,8 +3,9 @@
 >[!WARNING]
 >This project was created using AI tools. The tools were guided by me, but much of the implementation was left to the tools.
 
-A trading card scanning and identification system using YOLOv11 for
-segmentation and a LoRA-fine-tuned SigLIP2 vision encoder for identification.
+A trading card scanning and identification system using a YOLO pose model
+for corner detection and a LoRA-fine-tuned SigLIP2 vision encoder for
+identification.
 
 > [!IMPORTANT]
 > **This is a break-out of [`card-scanner`](https://github.com/Tabletop-Village/card-scanner)'s CUDA branch**,
@@ -24,11 +25,27 @@ this model came from for the full fine-tuning writeup and methodology.
 
 ## System Architecture
 
-- **Segmentation**: YOLOv11 handles card detection and perspective correction (unchanged from the VLAD version).
+- **Detection**: A `yolo26n-pose` model (`scanner.py`) detects each card and regresses its 4 corners directly, then perspective-warps it to a flat, upright crop. This replaced an earlier YOLOv11 segmentation model that approximated corners from a mask polygon (`cv2.approxPolyDP`) -- that approach degraded badly on steeply rotated cards, where direct keypoint regression stays accurate. See "The pose model" below for hosting/training details.
 - **Identification**: SigLIP2 (`google/siglip2-so400m-patch14-384`) vision tower + a merged LoRA
   adapter encodes the cropped card to a single embedding, matched by cosine
   similarity against a precomputed gallery index (`siglip_matcher.py`).
 - **Database**: Asynchronous SQLite database stores product metadata and real-time market prices (unchanged).
+
+## The pose model
+
+The corner-detection model is hosted on the HuggingFace Hub:
+[jackttv/card-scanner-yolo-pose](https://huggingface.co/jackttv/card-scanner-yolo-pose),
+fetched via `huggingface_hub.hf_hub_download` and cached locally after the
+first startup -- same pattern as the vector index below. A local
+`models/pose_best.pt`, if present, overrides the Hub fetch (offline dev /
+testing a not-yet-uploaded checkpoint).
+
+Trained on synthetic composites (real catalog card photos, perspective-warped
+and randomly placed over COCO backgrounds) spanning 9 TCGs, each capped to
+10k images so no single game's art style dominates -- the model only needs
+to learn "a rectangular card at any rotation," not per-game visual
+conventions. See the `yolo-pose-training` project for the full training
+writeup.
 
 ## The vector index
 
@@ -378,6 +395,7 @@ The application is configured via environment variables. Copy `.env.example` to 
 - **CORS**: Set `CARD_SCANNER_CORS_ORIGINS` to allow specific domains (default is `*`).
 - **Rate Limits**: Adjust `CARD_SCANNER_RATE_LIMIT_*` variables to control request throttling.
 - **Vector index / adapter**: `CARD_SCANNER_SIGLIP_HF_REPO_ID` (default `jackttv/card-scanner-siglip-lora`); `CARD_SCANNER_SIGLIP_VECTORS_PATH` (default `siglip_vectors`) overrides with a local directory if present.
+- **Pose detector**: `CARD_SCANNER_YOLO_HF_REPO_ID` (default `jackttv/card-scanner-yolo-pose`) / `CARD_SCANNER_YOLO_HF_FILENAME` (default `best.pt`); `CARD_SCANNER_YOLO_MODEL_PATH` (default `models/pose_best.pt`) overrides with a local file if present.
 - **Margin-match mode**: `CARD_SCANNER_MATCH_MARGIN_PCT` (default `2.0`) and `CARD_SCANNER_MATCH_MARGIN_POOL_SIZE` (default `30`) -- see `/scan`'s margin mode above.
 - **Schedule**:
     - **Vector index reload**: checked once every 24 hours (default 4:00 AM) — reloads `embeddings.pt` from disk in place if it's been refreshed.

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Trading card scanner using YOLOv11 for detection/segmentation and a
+Trading card scanner using a YOLO pose model for corner detection and a
 LoRA-fine-tuned SigLIP2 vision encoder for identification (cosine-similarity
 search over a precomputed gallery embedding index). FastAPI REST + WebSocket
 API with async SQLite database for product metadata and pricing from
@@ -33,7 +33,7 @@ pytest tests/
 ## Architecture
 
 **Data Flow:**
-1. Image upload -> YOLO detects card bounding boxes/masks -> perspective correction
+1. Image upload -> YOLO pose model detects each card + its 4 corner keypoints -> perspective-warp to a flat, upright crop
 2. SigLIP2 (base model + merged LoRA adapter) encodes the crop to one embedding -> cosine similarity search against the gallery index (GPU-resident fp16 tensor)
 3. Database lookup for product details/pricing -> return matches
 
@@ -41,7 +41,7 @@ pytest tests/
 - `config.py` - Centralized settings with environment variable support (pydantic-settings)
 - `logging_config.py` - Structured JSON logging with correlation ID support
 - `api.py` - FastAPI app with endpoints, middleware, rate limiting, auth, the `/live-recognize` WebSocket
-- `scanner.py` - YOLO detection + perspective correction + matcher orchestration. `Scanner.new_tracker()` builds an isolated ByteTrack/BOTSORT instance per live-recognize connection (deliberately not `model.track(persist=True)`, which stores tracker state on the shared model and would corrupt track IDs across concurrent clients); `scan(..., tracker=...)` drives it by hand and stamps a `track_id` onto each detection.
+- `scanner.py` - YOLO pose detection + perspective correction + matcher orchestration. Loads the pose model from the HF Hub (`jackttv/card-scanner-yolo-pose`, or a local `models/pose_best.pt` override) via `_resolve_model_path()`. `Scanner.crop()` perspective-warps using the 4 keypoints directly (`order_points()` re-derives true TL/TR/BR/BL from pixel coordinates, since the model's raw keypoint index order isn't semantically meaningful) -- this replaced an earlier YOLOv11 segmentation model that approximated corners from a mask polygon (`cv2.approxPolyDP`), which degraded on steeply rotated cards. `Scanner.new_tracker()` builds an isolated ByteTrack/BOTSORT instance per live-recognize connection (deliberately not `model.track(persist=True)`, which stores tracker state on the shared model and would corrupt track IDs across concurrent clients); `scan(..., tracker=...)` drives it by hand and stamps a `track_id` onto each detection.
 - `siglip_matcher.py` - Loads the gallery embeddings + LoRA adapter from the HF Hub (`jackttv/card-scanner-siglip-lora`, or a local `siglip_vectors/` override), GPU-resident cosine-similarity search. Mirrors the old `vlad_matcher.VLADCardSearch` interface (`search`/`search_verified`/`database`/`update_task`) so `scanner.py`/`api.py` needed no other changes.
 - `database.py` - Async SQLite operations, CSV sync from tcgcsv.com with retry logic. TCGCSV lists one row per (productId, subTypeName) -- the same card commonly appears as both "Normal" and "Reverse Holofoil" sharing one productId/image but different prices. `load_csv_to_db` preserves every subTypeName's price in `product_variants` (keyed by product_id + sub_type_name) rather than letting later rows silently clobber earlier ones in `products`, which picks one canonical row per productId via `_pick_canonical_variant` (prefers "Normal"/plain finishes). `query_variants_by_id()` returns all of a product's finishes.
 
@@ -59,6 +59,7 @@ pytest tests/
 **External Dependencies:**
 - Product data from `tcgcsv.com/tcgplayer/{categoryid}/{groupid}/ProductsAndPrices.csv`
 - SigLIP2 base weights (`google/siglip2-so400m-patch14-384`) and the LoRA adapter + gallery embeddings (`jackttv/card-scanner-siglip-lora`) from the HF Hub at startup, both cached locally after first fetch
+- YOLO pose detector (`jackttv/card-scanner-yolo-pose`) from the HF Hub at startup, cached locally after first fetch
 
 **Scheduled Tasks:**
 - Database update: 3:00 AM daily (configurable)
@@ -76,11 +77,13 @@ See `.env.example` for all available options.
 - `CARD_SCANNER_LOG_JSON` - Enable JSON logging (default: true)
 - `CARD_SCANNER_SIGLIP_HF_REPO_ID` - HF Hub repo for the LoRA adapter + gallery embeddings (default: `jackttv/card-scanner-siglip-lora`)
 - `CARD_SCANNER_SIGLIP_VECTORS_PATH` - Local directory that overrides the HF Hub if present (default: `siglip_vectors`)
+- `CARD_SCANNER_YOLO_HF_REPO_ID` / `CARD_SCANNER_YOLO_HF_FILENAME` - HF Hub repo/file for the pose detector (default: `jackttv/card-scanner-yolo-pose`, `best.pt`)
+- `CARD_SCANNER_YOLO_MODEL_PATH` - Local file that overrides the HF Hub if present (default: `models/pose_best.pt`)
 
 ## Key Files
 
 - `config.py` - All configurable settings with defaults
-- `models/best(2).pt` - YOLOv11 trained model (40.8 MB)
+- `models/pose_best.pt` (HF Hub `jackttv/card-scanner-yolo-pose`, or local override) - YOLO26n-pose corner-keypoint model
 - `database.db` - SQLite database with products, groups, categories
 - `embeddings.pt` (HF Hub, or local `siglip_vectors/`) - `{ids, embeds}`: one L2-normalized fp16 embedding per catalog product
 - LoRA adapter (HF Hub `jackttv/card-scanner-siglip-lora`, or local `siglip_vectors/lora_best/`) - Merged-at-load, PEFT format

@@ -17,8 +17,10 @@ numpy==2.4.6
 pillow==12.0.0
 torch==2.13.0+cu130
 
-# YOLO detection
-ultralytics==8.3.240
+# YOLO pose detector (scanner.py) -- corner-keypoint model, hosted on the
+# HF Hub, see huggingface.co/jackttv/card-scanner-yolo-pose (needs 8.4+
+# for the yolo26-pose Pose26 head; older ultralytics can't load it)
+ultralytics==8.4.137
 lap==0.5.13  # linear assignment for BYTETracker/BOTSORT (per-connection instance tracking)
 
 # SigLIP2 LoRA embedding matcher (siglip_matcher.py) -- adapter + gallery
