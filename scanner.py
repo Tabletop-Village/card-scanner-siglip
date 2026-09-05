@@ -52,7 +52,7 @@ class Scanner:
         return hf_hub_download(settings.yolo_hf_repo_id, settings.yolo_hf_filename)
 
     @staticmethod
-    def new_tracker(tracker_yaml='bytetrack.yaml', frame_rate=30):
+    def new_tracker(tracker_yaml='bytetrack.yaml'):
         """
         Build a fresh, isolated tracker instance for one video/websocket
         stream. Deliberately NOT `model.track(..., persist=True)`: that
@@ -62,9 +62,19 @@ class Scanner:
         Scanner. A standalone BYTETracker/BOTSORT instance, driven by
         hand via `.update()`, keeps each connection's tracks isolated
         while still sharing one loaded model for the actual detection.
+
+        ultralytics>=8.4 dropped BYTETracker/BOTSORT's `frame_rate`
+        constructor argument (max-lost-frames now comes straight from
+        args.track_buffer, with no frame_rate scaling) -- passing it
+        raises TypeError and crashes every /live-recognize connection at
+        accept time, right after `websocket.accept()`, before any frame
+        is even read. If a client only notices when its first `send()`/
+        `recv()` fails against the now-dead connection, it looks like
+        "the socket drops on the first frame" even though the server
+        actually crashed during setup.
         """
         cfg = IterableSimpleNamespace(**YAML.load(check_yaml(tracker_yaml)))
-        return _TRACKER_MAP[cfg.tracker_type](args=cfg, frame_rate=frame_rate)
+        return _TRACKER_MAP[cfg.tracker_type](args=cfg)
 
     def start_scheduled_updates(self):
         """Start the scheduled update background task for the VLAD matcher."""
