@@ -318,6 +318,8 @@ async def lifespan(app: fastapi.FastAPI):
         # Shutdown - always runs
         logger.info("Shutting down...")
         await db.close()
+        if hasattr(scanner, "close"):
+            scanner.close()
         logger.info("Shutdown complete")
 
 
@@ -562,8 +564,14 @@ async def health():
     return {"status": "healthy"}
 
 
+def attest_response(response: fastapi.Response, scanner):
+    digest = getattr(scanner, "artifact_digest", None)
+    if digest is not None:
+        response.headers["X-CSR-Artifact-SHA256"] = digest
+
+
 @app.get("/ready", response_model=ReadyResponse, tags=["Health"])
-async def ready():
+async def ready(response: fastapi.Response):
     """
     Readiness probe - checks if the service is ready to accept requests.
     Verifies database connection and scanner initialization.
@@ -595,6 +603,7 @@ async def ready():
         scanner_status = "error"
 
     if db_status == "ready" and scanner_status == "ready":
+        attest_response(response, scanner)
         return {"status": "ready", "database": db_status, "scanner": scanner_status}
     else:
         raise HTTPException(
@@ -871,6 +880,7 @@ async def scan(
 @limiter.limit(f"{settings.rate_limit_identify}/minute")
 async def identify(
     request: Request,
+    response: fastapi.Response,
     image: UploadFile = fastapi.File(...),
     top_n: Optional[int] = None,
     margin_pct: Optional[float] = None,
@@ -951,6 +961,7 @@ async def identify(
                 )
             )
 
+        attest_response(response, scanner)
         return results
 
     except APIError:

@@ -77,6 +77,9 @@ class Settings(BaseSettings):
     # External service URLs
     tcg_csv_url: str = "https://tcgcsv.com/tcgplayer/"
 
+    # Optional CSR pinned mode: verified local bundle, no Hub fallback/reloads.
+    csr_manifest: str = ""
+
     # SigLIP2 LoRA global-embedding matcher (siglip_matcher.py). The adapter
     # + gallery embeddings live on the HF Hub (siglip_hf_repo_id); a local
     # siglip_vectors_path directory, if present, overrides the Hub for

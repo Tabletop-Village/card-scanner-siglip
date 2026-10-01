@@ -34,3 +34,11 @@ venv live somewhere other than `/home/user/projects/card-scanner-siglip`.
 backoff); it won't mask a genuinely broken deploy, since a crash-loop
 still shows up in `systemctl --user status` / `journalctl --user -u
 card-scanner-siglip`.
+
+## CSR pinned inference
+
+For CSR, configure `CARD_SCANNER_CSR_MANIFEST` in the service's environment
+and use a clean committed scanner checkout plus a retained immutable artifact
+bundle. See [the bundle and commissioning procedure](../docs/csr-integration.md).
+Successful readiness and identification responses report the digest of the
+verified artifacts actually loaded; unpinned mode reports no attestation.
