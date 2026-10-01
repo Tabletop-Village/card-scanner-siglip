@@ -54,7 +54,9 @@ MODEL_ID = "google/siglip2-so400m-patch14-384"
 class SigLIPCardSearch:
     """Load a SigLIP2 LoRA gallery embedding index and search it with cosine similarity."""
 
-    def __init__(self, vectors_path=None, lora_path=None, hf_repo_id=None):
+    def __init__(self, vectors_path=None, lora_path=None, hf_repo_id=None, artifact_bundle=None):
+        self.artifact_bundle = artifact_bundle
+        self._gallery_loaded = False
         self.repo_path = Path(vectors_path or settings.siglip_vectors_path)
         self.lora_path = Path(lora_path) if lora_path else self.repo_path / "lora_best"
         self.hf_repo_id = hf_repo_id or settings.siglip_hf_repo_id
@@ -69,6 +71,20 @@ class SigLIPCardSearch:
         self.load_database()
 
     def _load_model(self):
+        if self.artifact_bundle:
+            if settings.match_margin_pool_size != 30:
+                raise ValueError("pinned preprocessing requires match_margin_pool_size=30")
+            paths = self.artifact_bundle.paths
+            model = AutoModel.from_pretrained(
+                str(paths["base_model"]), dtype=torch.bfloat16, local_files_only=True).to(self.device)
+            model.vision_model = PeftModel.from_pretrained(
+                model.vision_model, str(paths["lora"]), local_files_only=True)
+            model.vision_model = model.vision_model.merge_and_unload()
+            self.processor = AutoProcessor.from_pretrained(
+                str(paths["preprocessing"]), local_files_only=True)
+            model.eval()
+            self.model = model
+            return
         model = AutoModel.from_pretrained(MODEL_ID, dtype=torch.bfloat16).to(self.device)
         if self.lora_path.exists():
             logger.info("Loading SigLIP2 base model + local LoRA adapter from %s", self.lora_path)
@@ -97,6 +113,8 @@ class SigLIPCardSearch:
     def _resolve_embeddings_path(self):
         """Local siglip_vectors/embeddings.pt wins if present (offline dev);
         otherwise fetch/cache it from the HF Hub repo."""
+        if self.artifact_bundle:
+            return self.artifact_bundle.paths["gallery"]
         local_file = self.repo_path / "embeddings.pt"
         if local_file.exists():
             return local_file
@@ -105,6 +123,8 @@ class SigLIPCardSearch:
         return Path(hf_hub_download(self.hf_repo_id, "embeddings.pt"))
 
     def load_database(self):
+        if self.artifact_bundle and self._gallery_loaded:
+            raise RuntimeError("pinned gallery requires restart to change artifacts")
         self.database = {}
         self.aspect_ratios = {}
         embeddings_file = self._resolve_embeddings_path()
@@ -113,7 +133,7 @@ class SigLIPCardSearch:
                             self.repo_path / "embeddings.pt", self.hf_repo_id)
             self._rebuild_search_cache()
             return
-        data = torch.load(embeddings_file, map_location="cpu")
+        data = torch.load(embeddings_file, map_location="cpu", weights_only=True)
         ids = data["ids"].tolist()
         embeds = data["embeds"].numpy().astype(np.float16)
         self.database = {str(pid): embeds[i] for i, pid in enumerate(ids)}
@@ -126,6 +146,7 @@ class SigLIPCardSearch:
             ratios = data["aspect_ratios"].tolist()
             self.aspect_ratios = {str(pid): ratios[i] for i, pid in enumerate(ids)}
         self._rebuild_search_cache()
+        self._gallery_loaded = True
 
     def get_expected_aspect_ratio(self, product_id):
         """The matched product's real catalog image's width/height ratio,
@@ -151,6 +172,9 @@ class SigLIPCardSearch:
             await asyncio.to_thread(self.sync_and_reload)
 
     def start_scheduled_updates(self):
+        if self.artifact_bundle:
+            logger.info("Pinned CSR gallery: scheduled reload disabled")
+            return
         if self.update_task is None or self.update_task.done():
             self.update_task = asyncio.create_task(self.scheduled_update())
 

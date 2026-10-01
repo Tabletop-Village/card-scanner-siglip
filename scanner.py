@@ -23,6 +23,7 @@ import numpy as np
 import geometry
 import siglip_matcher
 from config import settings
+from csr_artifacts import ArtifactBundle
 
 _TRACKER_MAP = {"bytetrack": BYTETracker, "botsort": BOTSORT}
 
@@ -37,10 +38,39 @@ class Scanner:
         model_path: explicit local .pt path, overriding the usual
         local-file-then-HF-Hub resolution (see _resolve_model_path()).
         """
-        self.model = YOLO(model_path or self._resolve_model_path())
-        self.device = settings.yolo_device
-        self.model.to(self.device)
-        self.matcher = siglip_matcher.SigLIPCardSearch(vectors_path=vectors_path, lora_path=lora_path)
+        self._artifact_bundle = None
+        bundle = None
+        try:
+            if settings.csr_manifest:
+                if any(value is not None for value in (model_path, vectors_path, lora_path)):
+                    raise ValueError("pinned artifacts cannot be overridden")
+                bundle = ArtifactBundle(settings.csr_manifest)
+            detector = str(bundle.paths["detector"]) if bundle else model_path or self._resolve_model_path()
+            self.model = YOLO(detector)
+            self.device = settings.yolo_device
+            self.model.to(self.device)
+            self.matcher = siglip_matcher.SigLIPCardSearch(
+                vectors_path=vectors_path, lora_path=lora_path, artifact_bundle=bundle)
+            # Attest only after detector, model, processor, LoRA and gallery load.
+            if bundle and not self.matcher.database:
+                raise ValueError("pinned gallery is empty")
+            self._artifact_bundle = bundle
+        except BaseException:
+            if bundle:
+                bundle.close()
+            raise
+
+    @property
+    def artifact_digest(self):
+        bundle = self._artifact_bundle
+        if bundle is not None and self.matcher.artifact_bundle is bundle:
+            return bundle.digest
+        return None
+
+    def close(self):
+        if self._artifact_bundle is not None:
+            self._artifact_bundle.close()
+            self._artifact_bundle = None
 
     @staticmethod
     def _resolve_model_path():

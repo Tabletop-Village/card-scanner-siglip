@@ -1,0 +1,33 @@
+{
+  "gallery_preprocessing_sha256": "ddfb8c8c2bff7b8e2aee974e8f6b62ac368addd4a48754e6bc227cac8bccd419",
+  "gallery_lora_sha256": "cd03c26fbecd0f715073600da03f82ae9f839d0c27f2868fc7426593e6fdaad1",
+  "gallery_base_sha256": "05e7fc15a52f467d159d7d0bf1271e0de1bfbbec82e5d8fc72b83f1c4d981a48",
+  "gallery": {
+    "path": "embeddings.pt",
+    "sha256": "ce387d5e0a2972dea9e5129a52ac3b8d58a4d180fc9eece5946d926643a3d2c0",
+    "revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "lora": {
+    "path": "lora.tar",
+    "sha256": "cd03c26fbecd0f715073600da03f82ae9f839d0c27f2868fc7426593e6fdaad1",
+    "revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "base_model": {
+    "path": "base.tar",
+    "sha256": "05e7fc15a52f467d159d7d0bf1271e0de1bfbbec82e5d8fc72b83f1c4d981a48",
+    "revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "preprocessing": {
+    "path": "processor.tar",
+    "sha256": "ddfb8c8c2bff7b8e2aee974e8f6b62ac368addd4a48754e6bc227cac8bccd419",
+    "revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "detector": {
+    "path": "detector<&é .pt",
+    "sha256": "f2b3cbe41413047352141e5b863d87e696ec4f52b503040dba3a5700acd529a0",
+    "revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "input_contract": "csr-siglip-rgb-v1",
+  "scanner_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "schema_version": 1
+}

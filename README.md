@@ -434,3 +434,10 @@ The application is configured via environment variables. Copy `.env.example` to 
 ## License
 
 AGPLv3
+
+### CSR integration
+
+CSR deployments can select a verified offline artifact bundle with
+`CARD_SCANNER_CSR_MANIFEST`. The scanner then attests its loaded bundle on
+`/ready` and `/identify`, and gallery changes require restart. See
+[the pinned inference contract and commissioning procedure](docs/csr-integration.md).
