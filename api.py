@@ -771,11 +771,13 @@ async def live_recognize(
 @limiter.limit(f"{settings.rate_limit_scan}/minute")
 async def scan(
     request: Request,
+    response: fastapi.Response,
     image: UploadFile = fastapi.File(...),
     top_n: Optional[int] = None,
     margin_pct: Optional[float] = None,
     min_similarity: Optional[float] = None,
     verify: bool = False,
+    largest_only: bool = False,
     _api_key: Optional[str] = Depends(verify_api_key),
 ):
     """
@@ -794,6 +796,7 @@ async def scan(
             similarity is dropped entirely, so a detected region that
             doesn't resemble anything real in the gallery reports no match
             instead of a false-confident "closest available" one.
+        largest_only: Detect all cards, but identify only the largest bounding box.
         verify: Geometrically verify matches (RANSAC re-rank; adds inlier counts)
     Returns:
         JSON object containing all data for all cards detected
@@ -820,7 +823,7 @@ async def scan(
 
         try:
             detected_cards = await asyncio.wait_for(
-                asyncio.to_thread(scanner.scan, img, k=top_n, verify=verify, margin_pct=margin_pct, min_similarity=min_similarity),
+                asyncio.to_thread(scanner.scan, img, k=top_n, verify=verify, margin_pct=margin_pct, min_similarity=min_similarity, largest_only=largest_only),
                 timeout=settings.yolo_timeout,
             )
         except asyncio.TimeoutError:
@@ -857,6 +860,7 @@ async def scan(
                     )
                 )
 
+        attest_response(response, scanner)
         return results
 
     except APIError:

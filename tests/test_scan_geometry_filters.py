@@ -131,3 +131,36 @@ def test_segment_passes_the_configured_confidence_threshold():
     scanner.scan(image, k=1)
 
     assert captured["conf"] == settings.yolo_confidence_threshold
+
+
+@pytest.mark.parametrize("largest_index", [0, 1])
+def test_largest_only_matches_biggest_detection_before_retrieval(largest_index):
+    scanner = object.__new__(Scanner)
+    boxes = [_FakeBox([0, 0, 40, 60]), _FakeBox([100, 100, 250, 300])]
+    if largest_index == 0:
+        boxes.reverse()
+    result = type("Result", (), {"boxes": boxes, "keypoints": None})()
+    scanner.segment = lambda image: [result]
+    cropped = []
+    scanner.crop = lambda image, box, keypoints: cropped.append(box) or image
+    scanner.match = lambda *args, **kwargs: [("1", .9)]
+    cards = scanner.scan(np.zeros((400, 400, 3), dtype=np.uint8), largest_only=True)
+    assert cropped == [boxes[largest_index]]
+    assert len(cards) == 1
+    assert cards[0]["box"] == [100, 100, 250, 300]
+
+
+def test_largest_card_without_matches_does_not_substitute_smaller_card():
+    scanner = object.__new__(Scanner)
+    boxes = [_FakeBox([0, 0, 40, 60]), _FakeBox([100, 100, 250, 300])]
+    result = type("Result", (), {"boxes": boxes, "keypoints": None})()
+    scanner.segment = lambda image: [result]
+    scanner.crop = lambda image, box, keypoints: box
+    scanner.match = lambda box, **kwargs: [] if box is boxes[1] else [("1", .9)]
+    assert scanner.scan(np.zeros((400, 400, 3), dtype=np.uint8), largest_only=True) == []
+
+
+def test_largest_only_handles_no_detections():
+    scanner = object.__new__(Scanner)
+    scanner.segment = lambda image: []
+    assert scanner.scan(np.zeros((400, 400, 3), dtype=np.uint8), largest_only=True) == []
