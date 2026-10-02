@@ -17,6 +17,13 @@ of (and complementary to) SigLIP similarity:
     processed at all -- its crop is mostly extrapolated/fabricated by the
     perspective warp, not real image content.
 
+  - quad_box_area_fraction(): how much of its own detection box the quad
+    fills. Checks the pose model's keypoints against its box -- a
+    collapsed keypoint quad (all four corners bunched near the card's
+    centre, while the box and the confidence stay correct) would
+    otherwise be warped up into a magnified blur and confidently matched
+    to whatever gallery card carries the least detail.
+
 NOTE ambiguity: from 4 points alone, there is no way to tell which edge
 pair is "width" vs "height" -- a rectangle photographed rotated 90 degrees
 in-plane looks geometrically identical to the same rectangle's edges
@@ -105,3 +112,37 @@ def quad_visible_fraction(quad, image_width, image_height):
         return 0.0
     intersection_area, _ = cv2.intersectConvexConvex(quad, frame)
     return float(intersection_area) / float(quad_area)
+
+
+def quad_box_area_fraction(quad_cyclic, box_xyxy):
+    """How much of the detection's axis-aligned bounding box the corner
+    quad actually fills, as an area fraction (0-1).
+
+    A sanity check on the pose model's *keypoints* rather than on the
+    card: the box regression and the keypoint regression are separate
+    heads, and the keypoint head can collapse -- returning four points
+    bunched near the card's centre -- while the box stays correct and
+    the detection confidence stays high (0.94+). A collapsed quad is
+    still fully on-frame and can still land in a plausible aspect-ratio
+    band, so neither of the other two checks here catches it; only its
+    size relative to the box that contains it gives it away.
+
+    An honest quad can't fill much less than half its own bounding box:
+    for a w x h rectangle rotated theta in-plane the fraction is
+    wh / ((w|cos|+h|sin|)(w|sin|+h|cos|)), minimised at 45 degrees at
+    2wh/(w+h)^2 -- 0.486 for a standard 63:88 card, 0.5 for a square.
+    Perspective tilt moves that only slightly. So anything far below
+    ~0.49 is the keypoint head failing, not a real card pose.
+
+    quad_cyclic: 4 (x,y) points in cyclic order (Scanner.order_points()'
+    output) -- an unordered quad would self-intersect and give a
+    meaningless area. box_xyxy: (x1, y1, x2, y2).
+    Returns 0.0 for a degenerate box.
+    """
+    import cv2
+    x1, y1, x2, y2 = (float(v) for v in box_xyxy)
+    box_area = abs(x2 - x1) * abs(y2 - y1)
+    if box_area <= 1e-6:
+        return 0.0
+    quad_area = abs(cv2.contourArea(np.asarray(quad_cyclic, dtype=np.float32)))
+    return float(quad_area / box_area)

@@ -116,9 +116,16 @@ class Scanner:
         Run the YOLO pose model over the image.
         Returns a list of results containing boxes/keypoints (4 corners
         per detected card).
+
+        Runs at settings.yolo_imgsz rather than ultralytics' 640 default:
+        this model's keypoint accuracy is a function of the card's
+        absolute pixel size in the network input, and 640 lands right on
+        the edge where it starts collapsing for a card that fills the
+        frame -- see config.py for the measured sweep.
         """
         results = self.model(image, device=self.device, verbose=False,
-                              conf=settings.yolo_confidence_threshold)
+                              conf=settings.yolo_confidence_threshold,
+                              imgsz=settings.yolo_imgsz)
         return results
 
     def order_points(self, pts):
@@ -252,8 +259,19 @@ class Scanner:
         k=None switches to margin mode -- see siglip_matcher.search().
         largest_only selects the largest detected bounding box before matching.
 
-        Two geometry-only sanity checks, independent of SigLIP similarity
-        (see geometry.py for the full reasoning):
+        Three geometry-only sanity checks, independent of SigLIP
+        similarity (see geometry.py for the full reasoning):
+        - The pose model's 4 keypoints are checked against its own
+          detection box first: a quad filling less than
+          settings.min_keypoint_quad_box_fraction of that box is a
+          collapsed keypoint prediction (the box and the confidence stay
+          correct while the corners bunch near the card's centre), and is
+          discarded in favour of the plain box crop. Left in, it would
+          warp a tiny patch of the card up to full size and match that
+          magnified blur to whichever gallery card carries the least
+          detail -- a confident, completely wrong answer on a perfectly
+          sharp frame. Both checks below are quad measurements, so they
+          are skipped for such a detection too, not run on the bad quad.
         - A detection more than settings.max_offscreen_fraction off-frame
           is skipped entirely, before even cropping/matching it -- its
           crop would be mostly extrapolated by the perspective warp, not
@@ -303,6 +321,18 @@ class Scanner:
                     continue
                 box = result.boxes[i]
                 keypoints = result.keypoints[i].xy[0].cpu().numpy() if result.keypoints is not None else None
+                ordered_quad = None
+
+                if keypoints is not None:
+                    ordered_quad = self.order_points(np.asarray(keypoints, dtype=np.float32))
+                    quad_fraction = geometry.quad_box_area_fraction(ordered_quad, box.xyxy[0])
+                    if quad_fraction < settings.min_keypoint_quad_box_fraction:
+                        # Collapsed keypoints -- unusable for the warp AND
+                        # for both geometry checks below, which are quad
+                        # measurements. Drop them and fall back to the
+                        # box crop, same as if the model had returned no
+                        # keypoints at all.
+                        keypoints = ordered_quad = None
 
                 if keypoints is not None:
                     visible_fraction = geometry.quad_visible_fraction(keypoints, img_w, img_h)
@@ -312,8 +342,7 @@ class Scanner:
                 cropped = self.crop(image, box, keypoints)
                 matches = self.match(cropped, top_k=k, verify=verify, margin_pct=margin_pct, min_similarity=min_similarity)
 
-                if keypoints is not None and matches:
-                    ordered_quad = self.order_points(np.asarray(keypoints, dtype=np.float32))
+                if ordered_quad is not None and matches:
                     estimated_ratio = geometry.estimate_aspect_ratio(ordered_quad, principal_point)
                     matches = [
                         m for m in matches
