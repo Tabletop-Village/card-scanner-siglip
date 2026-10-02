@@ -193,3 +193,23 @@ def test_failed_pinned_load_cleans_snapshot_and_never_attests(loaded_scanner, mo
         scanner_module.Scanner()
     assert len(observed) == 1
     assert not observed[0].exists()
+
+
+@pytest.mark.parametrize("matches", [[], [{"card_id": "123", "similarity": .97}]])
+def test_full_frame_scan_attests_and_requests_largest_card(client, monkeypatch, matches):
+    client, loaded = client
+    def scan(image, **kwargs):
+        assert kwargs["largest_only"] is True
+        assert kwargs["k"] is None
+        assert kwargs["margin_pct"] == 5
+        assert kwargs["min_similarity"] == .5
+        assert np.array_equal(image[0, 0], [0, 0, 255])
+        return [{"box": [0, 0, 3, 1], "matches": matches}]
+    monkeypatch.setattr(loaded, "scan", scan)
+    monkeypatch.setattr(api, "archive_scan_image", lambda *args: "local-test")
+    response = client.post("/scan?largest_only=true&verify=false&margin_pct=5&min_similarity=0.5",
+                           files={"image": ("frame.png", color_png(), "image/png")},
+                           headers={"X-API-Key": "secret"})
+    assert response.status_code == 200
+    assert response.headers["X-CSR-Artifact-SHA256"] == loaded.artifact_digest
+    assert len(response.json()) == len(matches)

@@ -239,7 +239,7 @@ class Scanner:
             'box': [0, 0, image.shape[1], image.shape[0]] # Full image box
         }
 
-    def scan(self, image, k=1, verify=False, tracker=None, margin_pct=None, min_similarity=None):
+    def scan(self, image, k=1, verify=False, tracker=None, margin_pct=None, min_similarity=None, largest_only=False):
         """
         Full scan pipeline: segment, crop (with dewarp), and match.
         Returns a list of dictionaries, each containing the bounding box and
@@ -250,6 +250,7 @@ class Scanner:
         same instance on every frame. Without a tracker (the stateless
         REST /scan and /identify path), no `track_id` key is present at all.
         k=None switches to margin mode -- see siglip_matcher.search().
+        largest_only selects the largest detected bounding box before matching.
 
         Two geometry-only sanity checks, independent of SigLIP similarity
         (see geometry.py for the full reasoning):
@@ -268,6 +269,17 @@ class Scanner:
           the crop looked.
         """
         results = self.segment(image)
+        # Choose before matching: a larger card with no match must not silently
+        # substitute a smaller, unrelated card. Ties keep detector order.
+        largest = None
+        if largest_only:
+            detections = [(result, i) for result in results for i in range(len(result.boxes))]
+            if detections:
+                def area(detection):
+                    result, i = detection
+                    x1, y1, x2, y2 = result.boxes[i].xyxy[0].tolist()
+                    return max(0, x2 - x1) * max(0, y2 - y1)
+                largest = max(detections, key=area)
         scanned_cards = []
         img_h, img_w = image.shape[:2]
         principal_point = (img_w / 2, img_h / 2)
@@ -287,6 +299,8 @@ class Scanner:
                 det_indices = range(len(result.boxes))
 
             for track_id, i in zip(track_ids, det_indices):
+                if largest_only and (largest is None or result is not largest[0] or i != largest[1]):
+                    continue
                 box = result.boxes[i]
                 keypoints = result.keypoints[i].xy[0].cpu().numpy() if result.keypoints is not None else None
 
