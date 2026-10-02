@@ -29,9 +29,19 @@ this model came from for the full fine-tuning writeup and methodology.
 - **Identification**: SigLIP2 (`google/siglip2-so400m-patch14-384`) vision tower + a merged LoRA
   adapter encodes the cropped card to a single embedding, matched by cosine
   similarity against a precomputed gallery index (`siglip_matcher.py`).
-- **Geometry checks** (`geometry.py`): two sanity checks on the detected quad, independent of
-  SigLIP similarity. A detection more than `CARD_SCANNER_MAX_OFFSCREEN_FRACTION`
-  (default 20%) off-frame is skipped before it's even matched. Each candidate
+- **Geometry checks** (`geometry.py`): three sanity checks on the detected quad, independent of
+  SigLIP similarity. First, the pose model's keypoints are checked against its
+  own detection box: a corner quad filling less than
+  `CARD_SCANNER_MIN_KEYPOINT_QUAD_BOX_FRACTION` (default 0.45) of that box is a
+  collapsed keypoint prediction -- the box and the confidence stay correct while
+  the four corners bunch near the card's centre -- and is discarded in favour of
+  the plain box crop. Left in, it warps a tiny patch of the card up to full size
+  and matches that magnified blur to whichever gallery card carries the least
+  detail, i.e. a confident, completely wrong answer on a perfectly sharp frame.
+  A real card fills at least 0.486 of its own bounding box at any in-plane
+  rotation, so the threshold sits just under that.
+  Second, a detection more than `CARD_SCANNER_MAX_OFFSCREEN_FRACTION`
+  (default 20%) off-frame is skipped before it's even matched. Third, each candidate
   match is checked against the quad's own recovered 3D aspect ratio (single-view
   metrology: a rectangle's perpendicular edges force its two vanishing points to
   be orthogonal, which alone solves for the unknown camera focal length) vs. that
@@ -39,7 +49,14 @@ this model came from for the full fine-tuning writeup and methodology.
   portrait, but a few real formats aren't, so this is a per-match lookup rather
   than one fixed constant. A mismatch (beyond `CARD_SCANNER_ASPECT_RATIO_TOLERANCE`,
   default 15%) drops that candidate regardless of how visually similar the crop
-  looked to SigLIP.
+  looked to SigLIP. (Known issue: `estimate_aspect_ratio()`'s near-fronto-parallel
+  fallback guard tests `|n_z| < 1e-6`, an absolute threshold on a scale-dependent
+  quantity, so it never fires on real scans -- the smallest value seen on the
+  514-scan benchmark is 4e-6, and the fixed-camera fixture's flat, nearly
+  fronto-parallel captures are exactly the degenerate regime. 14 of 514 correct
+  high-confidence matches are dropped by this check as a result. `test_geometry.py`
+  validates the estimator only on deliberately tilted random 3D poses, which
+  never enter that regime.)
 - **Database**: Asynchronous SQLite database stores product metadata and real-time market prices (unchanged).
 
 ## The pose model
