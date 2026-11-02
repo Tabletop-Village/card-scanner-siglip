@@ -115,6 +115,15 @@ class Settings(BaseSettings):
     # to absorb real keypoint/lens-distortion noise on a genuine match,
     # tight enough to catch a genuinely wrong shape.
     aspect_ratio_tolerance: float = 0.15
+    # Below this fraction of its own detection box (see
+    # geometry.quad_box_area_fraction()), the pose model's 4 keypoints
+    # are treated as a collapsed/failed prediction and discarded -- the
+    # detection still gets matched, from the axis-aligned box crop
+    # instead of a perspective-corrected one. A real card can't fill
+    # much less than 0.486 of its bounding box at any in-plane rotation,
+    # so this sits just under that. Recovered 13 of the 30 errors on the
+    # 514-scan benchmark (94.16% -> 97.86% top-1 at the old imgsz=640).
+    min_keypoint_quad_box_fraction: float = 0.45
 
     # Torch CUDA device for YOLO on NVIDIA hardware.
     yolo_device: str = "cuda"
@@ -125,6 +134,22 @@ class Settings(BaseSettings):
     # detections on non-card objects (a laptop screen, a water bottle)
     # without losing real ones.
     yolo_confidence_threshold: float = 0.6
+
+    # Inference size for the pose model, below ultralytics' 640 default.
+    # The keypoint head's accuracy depends on the card's *absolute* pixel
+    # size in the network input, and it degrades badly once the card gets
+    # large there -- the synthetic training corpus is mostly small cards
+    # (median box height 0.376 of the frame, only 4% above 0.7), while a
+    # card filling a fixed-camera fixture is ~0.77. Measured on the
+    # 514-scan benchmark, the fraction of frames with a collapsed
+    # keypoint quad (see min_keypoint_quad_box_fraction) by imgsz:
+    # 416 -> 0%, 512 -> 7%, 640 -> 100% of the frames that fail at all,
+    # 960 -> 37%, 1280 -> 61%; end-to-end top-1 went 94.16% at 640 to
+    # 96.69% at 512/416. 640 sits right on a cliff for this model at
+    # this card size. Lower is also cheaper. The real fix is retraining
+    # the pose model with large-card examples, after which this can go
+    # back to the default.
+    yolo_imgsz: int = 512
 
     # TEMPORARY diagnostic aid, off by default -- see
     # api._save_live_detection_debug(). Saves every /live-recognize frame

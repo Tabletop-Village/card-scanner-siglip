@@ -1,7 +1,9 @@
-"""Integration contracts for Scanner.scan()'s two geometry-only filters
-(see geometry.py): off-screen detections are skipped before matching at
-all, and matches whose expected aspect ratio doesn't match the detected
-quad's own recovered shape are dropped after matching."""
+"""Integration contracts for Scanner.scan()'s three geometry-only filters
+(see geometry.py): a collapsed keypoint quad is discarded in favour of the
+plain box crop before anything else, off-screen detections are skipped
+before matching at all, and matches whose expected aspect ratio doesn't
+match the detected quad's own recovered shape are dropped after
+matching."""
 import numpy as np
 import pytest
 
@@ -55,7 +57,7 @@ class _FakeMatcher:
 
 def _make_scanner(quad, box_xyxy, expected_ratio, img_shape=(600, 800, 3)):
     scanner = object.__new__(Scanner)
-    scanner.model = lambda image, device, verbose, conf: [_FakeResult(box_xyxy, quad)]
+    scanner.model = lambda image, device, verbose, conf, imgsz: [_FakeResult(box_xyxy, quad)]
     scanner.device = "cpu"
     scanner.matcher = _FakeMatcher(expected_ratio)
     image = np.zeros(img_shape, dtype=np.uint8)
@@ -123,7 +125,7 @@ def test_segment_passes_the_configured_confidence_threshold():
 
     captured = {}
 
-    def fake_model(image, device, verbose, conf):
+    def fake_model(image, device, verbose, conf, imgsz):
         captured["conf"] = conf
         return [_FakeResult([300, 200, 500, 400], quad)]
 
@@ -131,6 +133,8 @@ def test_segment_passes_the_configured_confidence_threshold():
     scanner.scan(image, k=1)
 
     assert captured["conf"] == settings.yolo_confidence_threshold
+
+
 
 
 @pytest.mark.parametrize("largest_index", [0, 1])
@@ -164,3 +168,95 @@ def test_largest_only_handles_no_detections():
     scanner = object.__new__(Scanner)
     scanner.segment = lambda image: []
     assert scanner.scan(np.zeros((400, 400, 3), dtype=np.uint8), largest_only=True) == []
+
+
+
+
+def test_segment_passes_the_configured_inference_size():
+    """Regression test: segment() must apply config.yolo_imgsz, not
+    ultralytics' 640 default -- this model's keypoint head collapses on
+    cards that are large in the network input, and 640 is right on that
+    edge for a card filling a fixed-camera frame (see config.py)."""
+    quad = [(300, 200), (500, 200), (500, 400), (300, 400)]
+    scanner, image = _make_scanner(quad, box_xyxy=[300, 200, 500, 400], expected_ratio=None)
+
+    captured = {}
+
+    def fake_model(image, device, verbose, conf, imgsz):
+        captured["imgsz"] = imgsz
+        return [_FakeResult([300, 200, 500, 400], quad)]
+
+    scanner.model = fake_model
+    scanner.scan(image, k=1)
+
+    assert captured["imgsz"] == settings.yolo_imgsz
+
+
+def test_scan_falls_back_to_the_box_crop_when_keypoints_collapse():
+    """The failure this filter exists for: box and confidence correct,
+    keypoints bunched near the card's centre. The detection must still be
+    matched -- from the box crop -- not warped from the tiny quad and not
+    dropped."""
+    box = [300, 100, 500, 379]  # a real ~63:88 card box
+    quad = [(395, 230), (405, 228), (407, 245), (393, 247)]  # ~0.3% of the box
+
+    scanner, image = _make_scanner(quad, box_xyxy=box, expected_ratio=63.0 / 88.0)
+    captured = {}
+    original_crop = scanner.crop
+
+    def spy_crop(img, b, keypoints=None):
+        captured["keypoints"] = keypoints
+        return original_crop(img, b, keypoints)
+
+    scanner.crop = spy_crop
+    cards = scanner.scan(image, k=1)
+
+    assert captured["keypoints"] is None  # collapsed quad discarded before cropping
+    assert len(cards) == 1                # and the detection still got matched
+    assert cards[0]["matches"][0]["card_id"] == "1"
+
+
+def test_scan_does_not_run_the_aspect_ratio_check_on_a_collapsed_quad():
+    """A collapsed quad's recovered aspect ratio is meaningless. It must
+    not be used to reject the match -- that would turn a wrong answer
+    into no answer instead of into the right one."""
+    box = [300, 100, 500, 379]
+    # A tiny quad whose own shape is nothing like a card's (a wide
+    # slither): if this ratio were checked against the standard 63:88
+    # expectation, the match would be dropped.
+    quad = [(380, 235), (420, 234), (420, 241), (380, 242)]
+
+    scanner, image = _make_scanner(quad, box_xyxy=box, expected_ratio=63.0 / 88.0)
+    cards = scanner.scan(image, k=1)
+
+    assert len(cards) == 1
+
+
+def test_scan_keeps_keypoints_for_a_steeply_rotated_card():
+    """The guard must not fire on a genuine pose. A card rotated 45
+    degrees in-plane fills the least of its own bounding box that a real
+    card ever can (2wh/(w+h)^2 = 0.486 for 63:88) -- the worst honest
+    case, and it has to survive."""
+    w, h = 63.0 * 3, 88.0 * 3
+    centre = np.array([400.0, 300.0])
+    corners = np.array([[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]])
+    theta = np.pi / 4
+    rotation = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
+    quad = [tuple(p) for p in (corners @ rotation.T + centre)]
+    xs = [p[0] for p in quad]
+    ys = [p[1] for p in quad]
+
+    scanner, image = _make_scanner(quad, box_xyxy=[min(xs), min(ys), max(xs), max(ys)],
+                                    expected_ratio=63.0 / 88.0)
+    captured = {}
+    original_crop = scanner.crop
+
+    def spy_crop(img, b, keypoints=None):
+        captured["keypoints"] = keypoints
+        return original_crop(img, b, keypoints)
+
+    scanner.crop = spy_crop
+    cards = scanner.scan(image, k=1)
+
+    assert captured["keypoints"] is not None  # a real 45-degree pose is not "collapsed"
+    assert len(cards) == 1

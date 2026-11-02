@@ -9,7 +9,8 @@ reject (or fail to reject) real scans in production."""
 import numpy as np
 import pytest
 
-from geometry import estimate_aspect_ratio, aspect_ratio_matches, quad_visible_fraction
+from geometry import (estimate_aspect_ratio, aspect_ratio_matches, quad_visible_fraction,
+                      quad_box_area_fraction)
 
 
 def _rotation_matrix(rx, ry, rz):
@@ -110,3 +111,54 @@ def test_quad_visible_fraction_partial():
     # 30% hanging off the left edge -> 70% visible
     quad = [(-30, 100), (70, 100), (70, 200), (-30, 200)]
     assert quad_visible_fraction(quad, 400, 400) == pytest.approx(0.7, abs=0.01)
+
+
+def test_quad_box_area_fraction_on_an_honest_card_pose_never_dips_below_the_bound():
+    """An axis-aligned rectangle rotated in-plane fills at least
+    2wh/(w+h)^2 of its own bounding box (0.486 for 63:88, at 45
+    degrees). Swept across every rotation, nothing may fall below that
+    -- it's what makes config.min_keypoint_quad_box_fraction safe."""
+    w, h = 63.0, 88.0
+    bound = 2 * w * h / (w + h) ** 2
+    corners = np.array([[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]])
+
+    worst = 1.0
+    for degrees in range(0, 360):
+        theta = np.deg2rad(degrees)
+        rotation = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
+        quad = corners @ rotation.T + np.array([200.0, 200.0])
+        box = (quad[:, 0].min(), quad[:, 1].min(), quad[:, 0].max(), quad[:, 1].max())
+        worst = min(worst, quad_box_area_fraction(quad, box))
+
+    assert worst == pytest.approx(bound, rel=1e-3)
+    assert worst > 0.45  # config.min_keypoint_quad_box_fraction
+
+
+def test_quad_box_area_fraction_flags_a_collapsed_keypoint_quad():
+    """The real failure mode: correct box, keypoints bunched near the
+    card's centre."""
+    box = (300, 100, 500, 379)
+    collapsed = [(395, 230), (405, 228), (407, 245), (393, 247)]
+
+    assert quad_box_area_fraction(collapsed, box) < 0.01
+
+
+def test_quad_box_area_fraction_survives_a_perspective_tilt():
+    """Real detections are perspective-projected, not just rotated.
+    Across random 3D poses an honest card still fills a large share of
+    its box -- well clear of the collapse threshold."""
+    rng = np.random.default_rng(7)
+    worst = 1.0
+    for _ in range(500):
+        result = _random_projected_quad(rng, 63.0, 88.0)
+        if result is None:
+            continue
+        quad = np.asarray(result[0])
+        box = (quad[:, 0].min(), quad[:, 1].min(), quad[:, 0].max(), quad[:, 1].max())
+        worst = min(worst, quad_box_area_fraction(quad, box))
+
+    assert worst > 0.45
+
+
+def test_quad_box_area_fraction_is_zero_for_a_degenerate_box():
+    assert quad_box_area_fraction([(0, 0), (1, 0), (1, 1), (0, 1)], (5, 5, 5, 5)) == 0.0
